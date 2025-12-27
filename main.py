@@ -2,7 +2,9 @@ import pygame
 import sys
 from settings import *
 from entities.player import Player
-from world.parallax import ParallaxBackground  # NEW: Import the background class
+from world.parallax import ParallaxBackground
+from entities.scrap import ScrapManager
+from ui.menus import MainMenu
 
 class Game:
     def __init__(self):
@@ -11,53 +13,83 @@ class Game:
         pygame.display.set_caption("Zethia: Scrap-Jet Skyways")
         self.clock = pygame.time.Clock()
         self.running = True
-
-        # Game Objects
-        self.player = Player()
-        self.parallax = ParallaxBackground()  # NEW: Initialize the background
         
-        # We'll use PLAYER_SPEED from settings for the scroll speed
-        self.scroll_speed = 200 
+        # State Machine
+        self.state = "MENU"
+        self.menu = MainMenu(self.screen)
+        
+        # Objects
+        self.player = None
+        self.parallax = None
+        self.scrap_manager = None
+        self.score = 0
+
+    def reset_game(self):
+        """Initializes Arcade Mode."""
+        self.player = Player()
+        self.parallax = ParallaxBackground()
+        self.scrap_manager = ScrapManager()
+        self.score = 0
+        self.state = "PLAYING"
+        # Fade out menu music if you have separate game music
+        # pygame.mixer.music.fadeout(1000)
 
     def run(self):
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
-            self.events()
-            self.update(dt)
-            self.draw()
+            
+            if self.state == "MENU":
+                self.handle_menu_events()
+                self.menu.update(dt)
+                self.menu.draw()
+                pygame.display.flip()
+            elif self.state == "PLAYING":
+                self.events()
+                self.update(dt)
+                self.draw()
+
+    def handle_menu_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            
+            selection = self.menu.handle_input(event)
+            if selection == "Arcade Mode":
+                self.reset_game()
+            elif selection == "Exit":
+                self.running = False
 
     def events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-            
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    # Return to menu and skip splash
+                    self.state = "MENU"
+                    self.menu.menu_state = "READY"
+                    self.menu.button_alphas = [255] * len(self.menu.options)
 
     def update(self, dt):
         keys = pygame.key.get_pressed()
-        
-        # 1. Update Background Scrolling
-        self.parallax.update(0, dt) # NEW
-
-        # 2. Update Player
+        self.parallax.update(0, dt)
+        self.scrap_manager.update(dt, self.player.rect.center)
         self.player.handle_input(keys, dt)
         self.player.update(dt)
 
+        # Collision logic
+        hits = pygame.sprite.spritecollide(self.player, self.scrap_manager.scrap_group, True)
+        for scrap in hits:
+            self.score += scrap.value
+            self.player.weight += scrap.weight_value
+            self.player.weight = min(self.player.weight, self.player.max_weight)
+
     def draw(self):
-        # 1. Fill base Sky color (Layer 0)
         self.screen.fill(SKY_BLUE)
-
-        # 2. Draw Parallax Layers (Clouds, Trees, Ground)
-        self.parallax.draw(self.screen) # NEW
-
-        # 3. Draw the player on top of the world
-        self.screen.blit(self.player.image, self.player.rect)
-        
-        # 4. Draw HUD elements
-        self.player.draw_hud_elements(self.screen)
-
+        self.parallax.draw(self.screen)
+        self.scrap_manager.draw(self.screen)
+        self.player.draw(self.screen)
+        # Score Overlay (Optional simple text before HUD)
         pygame.display.flip()
 
 if __name__ == "__main__":
