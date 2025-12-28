@@ -124,7 +124,7 @@ class ParallaxBackground:
 
         # 3. Static/Looping Setup
         self.mountains = ParallaxLayer("assets/backgrounds/mountain.png", 50, GROUND_LINE - 280, True)
-        self.ground = ParallaxLayer("assets/backgrounds/ground.png", 200, GROUND_LINE, True)
+        self.ground = ParallaxLayer("assets/backgrounds/ground.jpeg", 200, GROUND_LINE, True)
 
     def update(self, unused_speed, dt):
         # Update everything

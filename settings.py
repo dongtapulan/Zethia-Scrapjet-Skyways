@@ -18,11 +18,11 @@ PLAYER_VERTICAL_SPEED = 200
 PLAYER_HEALTH = 3
 
 # --- Physics & Flight ---
-GRAVITY = 30
-THRUST_FORCE = 70
-EMERGENCY_THRUST = 100
-TERMINAL_VELOCITY = 50
-DRAG = 0.95
+GRAVITY = 18            # Slightly reduced from 20 for floatier feel
+THRUST_FORCE = 75       # Slightly buffed from 70 to counter weight better
+EMERGENCY_THRUST = 110  # Stronger "save me" force
+TERMINAL_VELOCITY = 45  # Lowered so you don't fall too fast to react
+DRAG = 0.96             # More "air resistance" helps stabilize the plane
 
 # --- Heat System (REBALANCED) ---
 HEAT_MAX = 150.0             # Increased from 100 (Bigger tank)
@@ -32,9 +32,11 @@ HEAT_COOLDOWN_AIR = 10.0     # Buffed from 2.0 (Cool down faster while gliding)
 HEAT_COOLDOWN_SKIM = 40.0    # Buffed from 8.0 (Rapid cooling on ground)
 OVERHEAT_STALL_TIME = 2.0    # Shortened from 3.0 (Less punishment)
 
-# --- Scrap & Weight ---
-SCRAP_TO_OVERCLOCK = 50
-LEECH_WEIGHT_PENALTY = 0.15
+# --- Scrap & Weight (REBALANCED) ---
+MAX_WEIGHT_CAPACITY = 1000
+WEIGHT_FREE_ZONE = 150       # New! First 150 scrap units don't affect physics
+WEIGHT_GRAVITY_SCALER = 0.02 # New! Controls how much each unit of weight pulls you down
+BULLET_SHED_AMOUNT = 2.0     # Buffed! Each shot now removes 2.0 weight (was 0.5)
 
 # --- Combat ---
 MISSILE_COOLDOWN = 3000
