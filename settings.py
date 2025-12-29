@@ -15,7 +15,7 @@ GLOOM_VIOLET = (138, 43, 226)
 # Player settings
 PLAYER_SPEED = 250
 PLAYER_VERTICAL_SPEED = 200
-PLAYER_HEALTH = 3
+PLAYER_HEALTH = 100
 
 # --- Physics & Flight ---
 GRAVITY = 18            # Slightly reduced from 20 for floatier feel
@@ -46,3 +46,11 @@ BOMB_COOLDOWN = 1500
 STORY_GOAL_DISTANCE = 50000
 GROUND_HEIGHT = 80
 GROUND_LINE = HEIGHT - GROUND_HEIGHT
+
+# --- Assets & UI ---
+FONT_MAIN = "assets/fonts/8-bitanco.ttf"
+SFX_MACHINE_GUN = "assets/sfx/machine_gun.mp3"
+
+# --- HUD & Stats ---
+HEALTH_BAR_COLOR = (255, 50, 50)
+DISTANCE_GOAL = 50000  # How far Huey needs to go

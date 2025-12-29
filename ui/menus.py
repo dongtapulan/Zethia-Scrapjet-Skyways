@@ -1,7 +1,7 @@
 import pygame
 import random
 import math
-from settings import WIDTH, HEIGHT, WHITE, BLACK, LUMEN_GOLD
+from settings import WIDTH, HEIGHT, WHITE, BLACK, LUMEN_GOLD, HEAT_RED
 
 class MenuParticle:
     def __init__(self):
@@ -67,7 +67,7 @@ class MainMenu:
         try:
             if not pygame.mixer.music.get_busy():
                 pygame.mixer.music.load("assets/sfx/MenuTheme-ShiningDays.mp3")
-                pygame.mixer.music.set_volume(0.4)
+                pygame.mixer.music.set_volume(0.2)
                 pygame.mixer.music.play(-1)
         except:
             pass
@@ -168,7 +168,6 @@ class MainMenu:
             except: pass
 
     def handle_input(self, event):
-        # Skip intro logic
         if self.menu_state != "READY":
             if event.type == pygame.KEYDOWN:
                 if event.key in [pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE]:
@@ -178,7 +177,70 @@ class MainMenu:
                     self.button_alphas = [255] * len(self.options)
             return None
         
-        # Actual selection logic
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP:
+                self.selected_index = (self.selected_index - 1) % len(self.options)
+            elif event.key == pygame.K_DOWN:
+                self.selected_index = (self.selected_index + 1) % len(self.options)
+            elif event.key == pygame.K_RETURN:
+                return self.options[self.selected_index]
+        return None
+
+# --- NEW: GAME OVER SCREEN ---
+
+class GameOverScreen:
+    def __init__(self, screen):
+        self.screen = screen
+        self.font_path = "assets/fonts/8-bitanco.ttf"
+        self.options = ["Retry", "Main Menu", "Exit"]
+        self.selected_index = 0
+        self.timer = 0
+        self.high_score = 0
+
+    def update(self, dt):
+        self.timer += dt
+
+    def draw(self, distance, score):
+        # Darkening overlay
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((20, 0, 0, 180)) # Dark red tint
+        self.screen.blit(overlay, (0, 0))
+
+        try:
+            # 1. Glitchy Title
+            title_font = pygame.font.Font(self.font_path, 80)
+            # Add a slight "shake" to the title
+            off_x = random.randint(-2, 2)
+            title_surf = title_font.render("SYSTEM FAILURE", True, HEAT_RED)
+            self.screen.blit(title_surf, (WIDTH//2 - title_surf.get_width()//2 + off_x, 150))
+
+            # 2. Stats Summary
+            stat_font = pygame.font.Font(self.font_path, 24)
+            dist_surf = stat_font.render(f"DISTANCE TRAVELED: {int(distance)}m", True, WHITE)
+            scrap_surf = stat_font.render(f"SCRAP RECOVERED: {score}", True, LUMEN_GOLD)
+            
+            self.screen.blit(dist_surf, (WIDTH//2 - dist_surf.get_width()//2, 280))
+            self.screen.blit(scrap_surf, (WIDTH//2 - scrap_surf.get_width()//2, 320))
+
+            # 3. Selection Options
+            opt_font = pygame.font.Font(self.font_path, 30)
+            for i, opt in enumerate(self.options):
+                is_sel = (i == self.selected_index)
+                color = HEAT_RED if is_sel else (150, 150, 150)
+                
+                # Pulse effect for selected
+                if is_sel:
+                    alpha = 155 + math.sin(self.timer * 10) * 100
+                    color = (int(alpha), 50, 50)
+                
+                text = f"> {opt} <" if is_sel else opt
+                surf = opt_font.render(text, True, color)
+                self.screen.blit(surf, (WIDTH//2 - surf.get_width()//2, 450 + i * 60))
+
+        except Exception as e:
+            print(f"Menu Draw Error: {e}")
+
+    def handle_input(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
                 self.selected_index = (self.selected_index - 1) % len(self.options)
