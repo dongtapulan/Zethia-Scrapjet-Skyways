@@ -6,13 +6,19 @@ from core.engine import Engine
 from entities.player import Player
 from world.parallax import ParallaxBackground
 from entities.scrap import ScrapManager
-from entities.enemies import *
-from entities.projectiles import ProjectileManager
-from world.ground_logic import Ground      
+from entities.enemies import EnemyManager
+from world.ground_logic import Ground       
 from world.obstacle_gen import ObstacleManager 
 from ui.menus import MainMenu, GameOverScreen
 from ui.hud import HUD             
 from ui.dialogue_box import DialogueBox 
+
+# --- NEW SYSTEMS IMPORTS ---
+from systems.combat_system import CombatSystem
+from systems.heat_system import HeatSystem
+from systems.upgrade_manager import UpgradeManager
+from ui.workshop_menu import WorkshopMenu # <--- Added Workshop Import
+from entities.projectiles import GravityWave
 
 class ExplosionParticle:
     """Fallback simple particles for non-bullet impacts (ambient smoke)."""
@@ -42,15 +48,24 @@ class Game:
         self.menu = MainMenu(self.screen)
         self.game_over_screen = GameOverScreen(self.screen)
         
-        # Game Systems
+        # Persistent Systems (Loaded once)
+        self.upgrade_manager = UpgradeManager()
+        # Initialize the Workshop Menu
+        self.workshop = WorkshopMenu(self.screen, self.upgrade_manager) # <--- Added Workshop instance
+        
+        # Game Entities & Managers
         self.player = None
         self.parallax = None
-        self.ground = None         
+        self.ground = None          
         self.obstacle_manager = None
         self.scrap_manager = None
         self.enemy_manager = None
-        self.projectile_manager = None
-        self.hud = None            
+        
+        # Modular Combat Systems
+        self.combat_system = None
+        self.heat_system = None
+        
+        self.hud = None             
         self.dialogue = None       
         self.explosions = [] 
         self.score = 0
@@ -63,7 +78,18 @@ class Game:
         self.obstacle_manager = ObstacleManager() 
         self.scrap_manager = ScrapManager()
         self.enemy_manager = EnemyManager()
-        self.projectile_manager = ProjectileManager()
+        
+        # Initialize Combat & Heat
+        self.combat_system = CombatSystem()
+        self.heat_system = HeatSystem()
+        
+        # Link systems to player
+        self.player.heat_system = self.heat_system 
+        self.player.combat_system = self.combat_system 
+        
+        # APPLY PERMANENT UPGRADES FROM WORKSHOP
+        self.upgrade_manager.apply_all_upgrades(self.player)
+        
         self.hud = HUD()            
         self.dialogue = DialogueBox() 
         self.explosions = []
@@ -77,10 +103,23 @@ class Game:
             selection = self.menu.handle_input(event)
             if selection == "Arcade Mode":
                 self.reset_game()
+            elif selection == "Workshop": # <--- Link to Workshop
+                self.state = "WORKSHOP"
             elif selection == "Exit":
                 pygame.quit()
                 sys.exit()
         
+        elif self.state == "WORKSHOP":
+            # Handle Workshop Input
+            result = self.workshop.handle_input(event)
+            if result == "BACK":
+                self.state = "MENU"
+                self.menu.menu_state = "READY"
+            elif result in self.upgrade_manager.stats:
+                # Attempt to buy the upgrade (no live player needed here, 
+                # stats are applied during reset_game)
+                self.upgrade_manager.attempt_upgrade(result, None)
+
         elif self.state == "GAMEOVER":
             selection = self.game_over_screen.handle_input(event)
             if selection == "Retry":
@@ -99,6 +138,15 @@ class Game:
                 if event.key == pygame.K_ESCAPE:
                     self.state = "MENU"
                     self.menu.menu_state = "READY"
+                
+                if event.key == pygame.K_r and self.player.missiles > 0:
+                    self.player.missiles -= 1
+                    self.combat_system.selected_weapon = "missile"
+                    self.combat_system.fire(self.player, self.enemy_manager.enemies, 0)
+                
+                if event.key == pygame.K_g and self.player.bombs > 0:
+                    self.player.bombs -= 1
+                    self.combat_system.manager.trigger_gravity_bomb(self.player)
         
         elif self.state == "PAUSED":
             if event.type == pygame.KEYDOWN:
@@ -110,6 +158,10 @@ class Game:
             self.menu.update(dt)
             return 
 
+        if self.state == "WORKSHOP": # <--- Update Workshop Particles
+            self.workshop.update(dt)
+            return
+
         if self.state == "PAUSED":
             return 
         
@@ -117,123 +169,106 @@ class Game:
             self.game_over_screen.update(dt)
             return
 
-        # --- CORE GAMEPLAY LOGIC ---
-        
-        # 1. Update World & Interactivity
+        # --- CORE GAMEPLAY ---
         scroll_speed = 0 if not self.player.is_alive else 1.0
         self.player.distance += dt * 50 * scroll_speed
         
-        # Pass distance to parallax for Day/Night cycle
         self.parallax.update(self.player.distance, dt) 
-        
         self.ground.update(dt, self.player.rect, self.player.is_skimming) 
         self.obstacle_manager.update(dt) 
         self.scrap_manager.update(dt, self.player.rect.center)
         
-        # 2. Update Player
         self.player.handle_input(flight_input, dt) 
         self.player.update(dt)
 
-        # 3. State Transition
         if not self.player.is_alive and self.player.has_exploded:
-            self.state = "GAMEOVER"
+            if self.state == "PLAYING":
+                earned = self.upgrade_manager.convert_score_to_bolts(self.score)
+                self.state = "GAMEOVER"
 
-        # 4. Combat Logic
+        is_firing = False
         if self.player.is_alive and combat_input["firing"]:
-            self.projectile_manager.fire_machine_gun(self.player, dt)
+            self.combat_system.selected_weapon = "machine_gun"
+            heat_added = self.combat_system.fire(self.player, self.enemy_manager.enemies, dt)
+            if heat_added > 0:
+                self.heat_system.add_heat(heat_added)
+                is_firing = True
 
-        self.projectile_manager.update(dt)
-        self.enemy_manager.update(dt, self.player.rect.center, self.projectile_manager)
+        self.heat_system.update(dt, is_firing)
+        self.combat_system.update(dt)
+        self.enemy_manager.update(dt, self.player.rect.center, self.combat_system.manager)
         
-        # 5. UI & Narrative
         self.hud.update(dt, self.player)     
         self.dialogue.update(dt, self.player) 
-
-        # 6. Collisions
         self._handle_collisions()
 
-        # 7. Update Particles
         for e in self.explosions[:]:
             e.update(dt)
             if e.life <= 0: self.explosions.remove(e)
 
     def _handle_collisions(self):
-        # Player vs Rocks
-        rock_collision = pygame.sprite.spritecollide(
-            self.player, self.obstacle_manager.obstacles, True, pygame.sprite.collide_mask
-        )
+        pm = self.combat_system.manager
+        rock_collision = pygame.sprite.spritecollide(self.player, self.obstacle_manager.obstacles, True, pygame.sprite.collide_mask)
         if rock_collision:
             self.player.take_damage(25) 
-            self.dialogue.trigger_random_quip("frustration")
-            self.projectile_manager.trigger_explosion(self.player.rect.centerx, self.player.rect.centery)
+            pm.trigger_explosion(self.player.rect.centerx, self.player.rect.centery)
 
-        # Enemy Bullets vs Player
-        bullet_hits = pygame.sprite.spritecollide(self.player, self.projectile_manager.enemy_bullets, True)
+        bullet_hits = pygame.sprite.spritecollide(self.player, pm.enemy_bullets, True)
         for bullet in bullet_hits:
             self.player.take_damage(10)
-            self.projectile_manager.trigger_explosion(bullet.rect.centerx, bullet.rect.centery)
+            pm.trigger_explosion(bullet.rect.centerx, bullet.rect.centery)
 
-        # Player Projectiles vs Enemies
-        # Note: This will automatically handle missiles once added to the player_bullets group
-        enemy_hits = pygame.sprite.groupcollide(self.enemy_manager.enemies, self.projectile_manager.player_bullets, False, True)
+        enemy_hits = pygame.sprite.groupcollide(self.enemy_manager.enemies, pm.player_bullets, False, False)
         for enemy, bullets in enemy_hits.items():
             for b in bullets:
-                self.projectile_manager.trigger_explosion(b.rect.centerx, b.rect.centery)
+                if not isinstance(b, GravityWave): 
+                    pm.trigger_explosion(b.rect.centerx, b.rect.centery)
+                    b.kill()
                 if enemy.take_damage(b.damage):
                     enemy.kill()
                     self.score += 150
 
-        # Scrap Collection
         scrap_hits = pygame.sprite.spritecollide(self.player, self.scrap_manager.scrap_group, True)
         for scrap in scrap_hits:
             self.score += scrap.value
             self.player.weight = min(self.player.max_weight, self.player.weight + scrap.weight_value)
-            
-            # Placeholder: Check for special Powerup scrap types here later
-            # if scrap.type == "MISSILE": ...
+            if scrap.scrap_type == "missile":
+                self.player.missiles = min(self.player.max_missiles, self.player.missiles + 5)
+            elif scrap.scrap_type == "bomb":
+                self.player.bombs = min(self.player.max_bombs, self.player.bombs + 2)
 
     def draw(self, screen):
         if self.state == "MENU":
             self.menu.draw()
+            return 
+        
+        if self.state == "WORKSHOP": # <--- Draw Workshop
+            self.workshop.draw()
             return
-        
-        # Parallax handles the screen.fill now based on the Day/Night color
+
         self.parallax.draw(screen)
-        
         self.ground.draw(screen)      
         self.obstacle_manager.draw(screen)
         self.scrap_manager.draw(screen)
         
-        for e in self.explosions:
-            e.draw(screen)
+        for e in self.explosions: e.draw(screen)
             
         self.enemy_manager.draw(screen)
-        self.projectile_manager.draw(screen) 
+        self.combat_system.draw(screen) 
         self.player.draw(screen)
-        
         self.hud.draw(screen, self.player, self.score)
         self.dialogue.draw(screen)
 
-        if self.state == "PAUSED":
-            self._draw_pause_overlay(screen)
-
-        if self.state == "GAMEOVER":
-            self.game_over_screen.draw(self.player.distance, self.score)
+        if self.state == "PAUSED": self._draw_pause_overlay(screen)
+        if self.state == "GAMEOVER": self.game_over_screen.draw(self.player.distance, self.score)
 
     def _draw_pause_overlay(self, screen):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150)) 
         screen.blit(overlay, (0, 0))
-        
         font = pygame.font.SysFont("Impact", 72)
         text = font.render("PAUSED", True, WHITE)
-        rect = text.get_rect(center=(WIDTH//2, HEIGHT//2))
-        screen.blit(text, rect)
-        
-        small_font = pygame.font.SysFont("Arial", 24)
-        hint = small_font.render("Press 'P' to Resume", True, LUMEN_GOLD)
-        h_rect = hint.get_rect(center=(WIDTH//2, HEIGHT//2 + 60))
-        screen.blit(hint, h_rect)
+        screen.blit(text, text.get_rect(center=(WIDTH//2, HEIGHT//2)))
 
 if __name__ == "__main__":
     engine = Engine()

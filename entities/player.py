@@ -8,7 +8,6 @@ from core.physics import FlightPhysics
 class Particle:
     def __init__(self, x, y, p_type="smoke", heat_ratio=0.0):
         self.pos = pygame.Vector2(x, y)
-        # Smoke drifts back, fire explodes outward
         if p_type == "fire":
             self.vel = pygame.Vector2(random.uniform(-100, 100), random.uniform(-100, 100))
             self.color = [255, random.randint(100, 200), 50]
@@ -26,7 +25,6 @@ class Particle:
 
     def update(self, dt):
         self.pos += self.vel * dt
-        # Gravity effect for heavy smoke
         if self.p_type == "smoke":
             self.vel.y -= 10 * dt 
         self.life -= self.decay * dt
@@ -34,7 +32,6 @@ class Particle:
     def draw(self, screen):
         if self.life > 0:
             size = int(self.life * self.base_size)
-            # Create a small glow surface for fire
             if self.p_type == "fire":
                 surf = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
                 pygame.draw.circle(surf, (*self.color, 150), (size, size), size)
@@ -51,14 +48,13 @@ class Player(pygame.sprite.Sprite):
         self.frame_open = pygame.image.load("assets/sprites/huey_plane1.png").convert_alpha()
         self.frame_blink = pygame.image.load("assets/sprites/huey_plane2.png").convert_alpha()
         self.image_crash = pygame.image.load("assets/sprites/huey_planecrash.png").convert_alpha()
-        self.image_crash = pygame.transform.scale(self.image_crash, (80, 80))
+    
         
         try:
             self.sfx_explosion = pygame.mixer.Sound("assets/sfx/explosion_old.mp3")
             self.sfx_explosion.set_volume(0.3)
         except:
             self.sfx_explosion = None
-            print("Warning: explosion_old.mp3 not found")
 
         self.base_image = self.frame_open
         self.image = self.base_image
@@ -81,6 +77,12 @@ class Player(pygame.sprite.Sprite):
         self.is_skimming = False
         self.leeches = 0
         
+        # --- NEW SECONDARY WEAPONS ---
+        self.missiles = 0
+        self.max_missiles = 15
+        self.bombs = 0
+        self.max_bombs = 5
+        
         # 4. Death & Crash Sequence
         self.death_timer = 0
         self.has_exploded = False
@@ -96,7 +98,6 @@ class Player(pygame.sprite.Sprite):
         self.stall_timer = 0
 
     def take_damage(self, amount, play_sound=True):
-        """Reduces health and triggers sound on impact."""
         if self.is_alive and not self.invincible:
             self.health -= amount
             if play_sound and self.sfx_explosion:
@@ -116,25 +117,20 @@ class Player(pygame.sprite.Sprite):
         self.smoke_timer += dt
         heat_ratio = self.heat / HEAT_MAX
         
-        # Base spawn rate
         spawn_rate = 0.04
         if not self.is_alive:
-            spawn_rate = 0.01 # Intense fire/smoke on death
+            spawn_rate = 0.01 
         
         if self.smoke_timer > spawn_rate:
             ex_x, ex_y = self.rect.center
-            
-            # Add smoke
             self.particles.append(Particle(ex_x, ex_y, "smoke", heat_ratio))
             
-            # Add fire if overheating or dead
             if heat_ratio > 0.8 or not self.is_alive:
                 self.particles.append(Particle(ex_x, ex_y, "fire"))
                 
             self.smoke_timer = 0
 
     def update(self, dt):
-        # 1. Handle I-Frames
         if self.invincible:
             if pygame.time.get_ticks() - self.invincible_timer > self.invincible_duration * 1000:
                 self.invincible = False
@@ -145,17 +141,16 @@ class Player(pygame.sprite.Sprite):
         
         # 2. Death Sequence Logic
         if not self.is_alive:
-            # Slow descent physics
+            # Slow descent and "shedding" weight as we crash
             self.rect.y += (GRAVITY * 0.8) * dt
-            # Wobble effect during crash
             self.rect.x += math.sin(pygame.time.get_ticks() * 0.01) * 2
+            self.weight = max(0, self.weight - 10 * dt)
             
-            # Check for final explosion (e.g., after 2 seconds or hitting ground)
             time_since_death = (pygame.time.get_ticks() - self.death_timer) / 1000
             if (time_since_death > 2.0 or self.rect.bottom >= HEIGHT) and not self.has_exploded:
                 self.trigger_final_explosion()
 
-        # 3. Movement (Input ignored if dead)
+        # 3. Movement
         if self.is_alive:
             self.handle_recovery(dt)
         
@@ -166,11 +161,9 @@ class Player(pygame.sprite.Sprite):
             if p.life <= 0: self.particles.remove(p)
 
     def trigger_final_explosion(self):
-        """The big boom before Game Over."""
         self.has_exploded = True
         if self.sfx_explosion:
             self.sfx_explosion.play()
-        # Spawn massive burst of particles
         for _ in range(30):
             ex_x, ex_y = self.rect.center
             self.particles.append(Particle(ex_x, ex_y, "fire"))
@@ -193,7 +186,6 @@ class Player(pygame.sprite.Sprite):
                 is_holding = flight_input["is_holding"]
                 self.apply_heat(dt, is_holding)
         
-        # Heat Dissipation
         cooldown_rate = HEAT_COOLDOWN_SKIM if self.is_skimming else HEAT_COOLDOWN_AIR
         if not thrust_active:
             self.heat = max(0, self.heat - (cooldown_rate * dt))
@@ -235,14 +227,13 @@ class Player(pygame.sprite.Sprite):
 
     def apply_tilt(self):
         if not self.is_alive:
-            target_rotation = -30 # Nose down during crash
+            target_rotation = -30 
         else:
             target_rotation = self.physics.velocity_y * -2.5
             target_rotation = max(-25, min(15, target_rotation))
             
         self.rotation += (target_rotation - self.rotation) * 0.1
         self.image = pygame.transform.rotate(self.base_image, self.rotation)
-        # We don't re-center the rect when dead to prevent "teleporting" look
         if self.is_alive:
             self.rect = self.image.get_rect(center=self.rect.center)
         self.mask = pygame.mask.from_surface(self.image)
@@ -251,10 +242,8 @@ class Player(pygame.sprite.Sprite):
         for p in self.particles:
             p.draw(screen)
             
-        # I-Frame Flash
         if self.invincible and (pygame.time.get_ticks() // 100) % 2 == 0:
             return
 
-        # If we've "exploded" at the end of the crash, we might want to stop drawing Huey
         if not self.has_exploded:
             screen.blit(self.image, self.rect)

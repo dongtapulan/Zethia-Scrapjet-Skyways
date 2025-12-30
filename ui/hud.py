@@ -21,7 +21,7 @@ class HUD:
         self.hint_timer = 0
         
         # 3. Bar Dimensions
-        self.bar_w, self.bar_h = 200, 14 # Made slightly chunkier for 8-bit aesthetic
+        self.bar_w, self.bar_h = 200, 14 
         self.margin = 25
 
     def show_hint(self, text, duration=3.0):
@@ -70,28 +70,39 @@ class HUD:
         dist_rect = dist_surface.get_rect(topright=(WIDTH - self.margin, self.margin + 40))
         screen.blit(dist_surface, dist_rect)
 
-        # --- 3. Bottom Center: Tutorial Container ---
+        # --- 3. Bottom Left: Ordinance Inventory (New) ---
+        self._draw_weapons(screen, player)
+
+        # --- 4. Bottom Center: Tutorial Container ---
         if self.hint_alpha > 0:
             self._draw_hint_box(screen)
 
     def _draw_bar(self, screen, x, y, ratio, color, label):
-        # Label text
         lbl = self.hint_font.render(label, True, WHITE)
         screen.blit(lbl, (x, y - 20))
         
-        # Background/Border (Dark Shadow)
         pygame.draw.rect(screen, (20, 20, 20), (x, y, self.bar_w, self.bar_h))
-        
-        # Fill
         fill_w = int(max(0, min(1.0, ratio)) * self.bar_w)
         if fill_w > 0:
-            # Main fill
             pygame.draw.rect(screen, color, (x, y, fill_w, self.bar_h))
-            # Shading effect on bar
             pygame.draw.rect(screen, (255, 255, 255, 50), (x, y, fill_w, self.bar_h // 3))
-            
-        # 8-bit Style Border
+        
         pygame.draw.rect(screen, WHITE, (x, y, self.bar_w, self.bar_h), 2)
+
+    def _draw_weapons(self, screen, player):
+        """Draws missile and bomb counts in the bottom left."""
+        start_x = self.margin
+        start_y = HEIGHT - 80
+
+        # Missile UI
+        m_color = WHITE if player.missiles > 0 else (100, 100, 100)
+        m_text = self.main_font.render(f"[R] MISSILES: {player.missiles}", True, m_color)
+        screen.blit(m_text, (start_x, start_y))
+
+        # Bomb UI
+        b_color = (100, 200, 255) if player.bombs > 0 else (100, 100, 100)
+        b_text = self.main_font.render(f"[G] G-BOMBS: {player.bombs}", True, b_color)
+        screen.blit(b_text, (start_x, start_y + 35))
 
     def _draw_hint_box(self, screen):
         hint_surf = self.hint_font.render(self.hint_text, True, WHITE)
@@ -102,7 +113,6 @@ class HUD:
         box_rect = pygame.Rect(0, 0, box_w, box_h)
         box_rect.center = (WIDTH // 2, HEIGHT - 120)
         
-        # Double-bordered 8-bit box
         bg_surf = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
         pygame.draw.rect(bg_surf, (0, 0, 0, 200), (0, 0, box_w, box_h))
         pygame.draw.rect(bg_surf, WHITE, (0, 0, box_w, box_h), 2)

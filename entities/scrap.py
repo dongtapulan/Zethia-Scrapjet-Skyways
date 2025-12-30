@@ -8,57 +8,64 @@ class Scrap(pygame.sprite.Sprite):
         super().__init__()
         self.scrap_type = scrap_type
         
-        # --- DETAILED TRADE-OFFS ---
+        # --- STATS & POWERUPS ---
         if self.scrap_type == "battery":
             self.image = images['battery']
-            self.weight_value = 1   # Extremely light
-            self.value = 100        # Jackpot
-            self.magnet_range = 350 # Huge attraction distance
-            self.drift_speed = 10   # Floats almost perfectly still
+            self.weight_value = 1   
+            self.value = 100        
+            self.magnet_range = 350 
+            self.drift_speed = 10   
         
         elif self.scrap_type == "gear":
             self.image = images['gear']
-            self.weight_value = 45  # HUGE weight penalty
-            self.value = 50         # Medium reward
-            self.magnet_range = 90  # Weak magnetism (must fly close)
-            self.drift_speed = 60   # Sinks toward the ground (looks heavy)
-        
+            self.weight_value = 45  
+            self.value = 50         
+            self.magnet_range = 90  
+            self.drift_speed = 60   
+            
+        elif self.scrap_type == "missile":
+            self.image = images['missile']
+            self.weight_value = 5   
+            self.value = 0          
+            self.magnet_range = 250 
+            self.drift_speed = 15   
+            
+        elif self.scrap_type == "bomb":
+            self.image = images['bomb']
+            self.weight_value = 15  
+            self.value = 0          
+            self.magnet_range = 150 
+            self.drift_speed = 40   
+
         else: # Golden Bolt
             self.image = images['bolt']
-            self.weight_value = 1   # Very light
-            self.value = 10         # Standard score
-            self.magnet_range = 180 # Normal magnetism
-            self.drift_speed = 25   # Natural drift
+            self.weight_value = 1   
+            self.value = 10         
+            self.magnet_range = 180 
+            self.drift_speed = 25   
 
         self.rect = self.image.get_rect(center=(x, y))
         self.pos = pygame.Vector2(x, y)
         self.bob_timer = random.uniform(0, math.pi * 2)
-        
-        # Magnetism State
         self.attract_speed = 0
-        self.max_attract_speed = 750 # Top speed when being sucked in
+        self.max_attract_speed = 750 
 
     def update(self, dt, player_pos):
-        # 1. Visual Bobbing
         self.bob_timer += 4 * dt
         bob_offset = math.sin(self.bob_timer) * 0.5
         
-        # 2. Magnetic Pull Logic
         target_vec = pygame.Vector2(player_pos) - self.pos
         distance = target_vec.length()
         
         if distance < self.magnet_range:
-            # Accelerate toward Huey
             self.attract_speed = min(self.max_attract_speed, self.attract_speed + 1000 * dt)
             move_dir = target_vec.normalize()
             self.pos += move_dir * self.attract_speed * dt
         else:
-            # Standard World Movement
-            self.pos.x -= 200 * dt # Scroll with world
-            self.pos.y += (self.drift_speed * dt) + bob_offset # Sinking/Bobbing
-            self.attract_speed = 0 # Reset speed if out of range
+            self.pos.x -= 200 * dt 
+            self.pos.y += (self.drift_speed * dt) + bob_offset 
+            self.attract_speed = 0 
 
-        # Keep scrap above the floor
         if self.pos.y > GROUND_LINE - 10:
             self.pos.y = GROUND_LINE - 10
 
@@ -70,41 +77,42 @@ class ScrapManager:
         self.spawn_timer = 0
         
         path = "assets/sprites/scraps/"
-        self.images = {
-            'bolt': pygame.image.load(path + "golden_bolt.png").convert_alpha(),
-            'gear': pygame.image.load(path + "heavy bronze gear.png").convert_alpha(),
-            'battery': pygame.image.load(path + "glowing_battery.png").convert_alpha()
-        }
+        try:
+            self.images = {
+                'bolt': pygame.image.load(path + "golden_bolt.png").convert_alpha(),
+                'gear': pygame.image.load(path + "heavy bronze gear.png").convert_alpha(),
+                'battery': pygame.image.load(path + "glowing_battery.png").convert_alpha(),
+                'missile': pygame.image.load(path + "missile_pickup.png").convert_alpha(),
+                'bomb': pygame.image.load(path + "gravity_bomb_pickup.png").convert_alpha()
+            }
+        except:
+            self.images = {k: pygame.Surface((20, 20)) for k in ['bolt', 'gear', 'battery', 'missile', 'bomb']}
 
     def spawn_pattern(self):
-        # We now choose between a "Common" bolt run, or a "Strategic" solo item
-        pattern = random.choice(["bolts", "bolts", "bolts", "strategic"])
+        # Weighted choice: Rare weapons (10%), Strategic (20%), Common (70%)
+        roll = random.random()
         start_y = random.randint(100, GROUND_LINE - 150)
         
-        if pattern == "bolts":
-            # Spawn a small line of common bolts
+        if roll < 0.70:
             count = random.randint(3, 5)
             for i in range(count):
                 self.scrap_group.add(Scrap(WIDTH + (i * 60), start_y, "bolt", self.images))
-        
-        elif pattern == "strategic":
-            # Spawn a single high-value item: either a heavy choice or a rare find
-            # 80% chance for Gear, 20% for Battery
+        elif roll < 0.90:
             choice = "battery" if random.random() < 0.2 else "gear"
+            self.scrap_group.add(Scrap(WIDTH, start_y, choice, self.images))
+        else:
+            # WEAPONS ARE NOW RAREST
+            choice = "bomb" if random.random() < 0.4 else "missile"
             self.scrap_group.add(Scrap(WIDTH, start_y, choice, self.images))
 
     def update(self, dt, player_pos):
         self.spawn_timer += dt
-        
-        # REDUCED SPAWN FREQUENCY: 
-        # Spawns an item/pattern every 4 to 7 seconds instead of 2.5
-        if self.spawn_timer > random.uniform(4.0, 7.0):
+        # SPAWN TIME INCREASED TO 8-12 SECONDS
+        if self.spawn_timer > random.uniform(8.0, 12.0):
             self.spawn_pattern()
             self.spawn_timer = 0
             
         self.scrap_group.update(dt, player_pos)
-        
-        # Cleanup off-screen
         for scrap in self.scrap_group:
             if scrap.rect.right < -100:
                 scrap.kill()
