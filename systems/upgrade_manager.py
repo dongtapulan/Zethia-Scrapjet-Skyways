@@ -11,6 +11,7 @@ class UpgradeManager:
         self.total_bolts = 0
         
         # --- PERMANENT STAT LEVELS ---
+        # Current Level, Max Level, Base Cost
         self.stats = {
             "Engine Cooling": {"level": 0, "max": 5, "cost": 150},
             "Magnetic Hull":  {"level": 0, "max": 5, "cost": 100},
@@ -62,10 +63,9 @@ class UpgradeManager:
 
     def convert_score_to_bolts(self, score):
         """Converts Arcade score to permanent currency at the end of a run."""
-        # 10% conversion rate: 1000 score = 100 bolts
         earned = int(score * 0.10)
         self.total_bolts += earned
-        self.save_game() # Auto-save after earning
+        self.save_game() 
         return earned
 
     # --- UPGRADE LOGIC ---
@@ -74,7 +74,8 @@ class UpgradeManager:
         stat = self.stats[stat_name]
         return int(stat["cost"] * (1.5 ** stat["level"]))
 
-    def attempt_upgrade(self, stat_name, player):
+    def attempt_upgrade(self, stat_name, player=None):
+        """Handles the logic of spending bolts. Player is optional for menu-use."""
         if stat_name not in self.stats:
             return False
 
@@ -84,24 +85,46 @@ class UpgradeManager:
         if stat["level"] < stat["max"] and self.total_bolts >= cost:
             self.total_bolts -= cost
             stat["level"] += 1
-            self._apply_stat_boost(stat_name, player)
-            self.save_game() # Auto-save after purchase
+            
+            # Save the new level to disk immediately
+            self.save_game()
+            
+            # Only try to modify a player if one is actually provided (not in menus)
+            if player:
+                self._apply_stat_boost(stat_name, player)
             return True
         return False
 
     def _apply_stat_boost(self, stat_name, player):
+        """Safely modifies player variables based on current levels."""
+        if player is None:
+            return
+
         level = self.stats[stat_name]["level"]
+        
         if stat_name == "Engine Cooling":
-            player.heat_system.max_heat = 100 + (level * 15)
+            # Update the max heat capacity
+            if hasattr(player, 'heat_system'):
+                player.heat_system.max_heat = 100 + (level * 15)
+                
         elif stat_name == "Magnetic Hull":
+            # Increase collection range
             player.collection_range = 60 + (level * 25)
+            
         elif stat_name == "Hull Integrity":
+            # Increase Max HP and heal
             player.max_health = 100 + (level * 25)
             player.health = player.max_health
+            
         elif stat_name == "Ammo Feed":
-            player.combat_system.manager.fire_rate = max(0.04, 0.08 - (level * 0.008))
+            # Access the manager inside the combat system to change fire rate
+            if hasattr(player, 'combat_system') and player.combat_system.manager:
+                player.combat_system.manager.fire_rate = max(0.04, 0.08 - (level * 0.008))
 
     def apply_all_upgrades(self, player):
-        """Call this when starting a new run to ensure player stats match upgrade levels."""
+        """Called by main.py during reset_game() to sync ship with workshop levels."""
+        if player is None:
+            return
+            
         for stat_name in self.stats:
             self._apply_stat_boost(stat_name, player)

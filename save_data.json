@@ -1,10 +1,10 @@
 {
-    "bolts": 4553,
+    "bolts": 1734,
     "stats": {
         "Engine Cooling": 0,
         "Magnetic Hull": 0,
         "Hull Integrity": 0,
-        "Ammo Feed": 0
+        "Ammo Feed": 2
     },
     "overclocks": []
 }

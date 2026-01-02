@@ -51,7 +51,7 @@ class Player(pygame.sprite.Sprite):
     
         
         try:
-            self.sfx_explosion = pygame.mixer.Sound("assets/sfx/explosion_old.mp3")
+            self.sfx_explosion = pygame.mixer.Sound("assets/sfx/explosion.wav")
             self.sfx_explosion.set_volume(0.3)
         except:
             self.sfx_explosion = None

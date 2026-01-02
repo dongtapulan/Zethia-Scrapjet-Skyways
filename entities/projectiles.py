@@ -212,7 +212,7 @@ class ProjectileManager:
             self.shoot_sfx = pygame.mixer.Sound(SFX_MACHINE_GUN)
             self.shoot_sfx.set_volume(0.15)
             # Load explosion sound correctly
-            self.explosion_sfx = pygame.mixer.Sound("assets/sfx/explosion_old.mp3")
+            self.explosion_sfx = pygame.mixer.Sound("assets/sfx/explosion.wav")
             self.explosion_sfx.set_volume(0.3)
         except:
             self.shoot_sfx = None
