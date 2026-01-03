@@ -45,11 +45,18 @@ class Player(pygame.sprite.Sprite):
         super().__init__()
         
         # 1. Assets & SFX
-        self.frame_open = pygame.image.load("assets/sprites/huey_plane1.png").convert_alpha()
-        self.frame_blink = pygame.image.load("assets/sprites/huey_plane2.png").convert_alpha()
-        self.image_crash = pygame.image.load("assets/sprites/huey_planecrash.png").convert_alpha()
+        try:
+            self.frame_open = pygame.image.load("assets/sprites/huey_plane1.png").convert_alpha()
+            self.frame_blink = pygame.image.load("assets/sprites/huey_plane2.png").convert_alpha()
+            self.image_crash = pygame.image.load("assets/sprites/huey_planecrash.png").convert_alpha()
+        except:
+            # Fallback if images are missing
+            self.frame_open = pygame.Surface((50, 30))
+            self.frame_open.fill((200, 200, 200))
+            self.frame_blink = self.frame_open.copy()
+            self.image_crash = self.frame_open.copy()
+            self.image_crash.fill((100, 100, 100))
     
-        
         try:
             self.sfx_explosion = pygame.mixer.Sound("assets/sfx/explosion.wav")
             self.sfx_explosion.set_volume(0.3)
@@ -61,15 +68,18 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(center=(200, HEIGHT // 2))
         self.mask = pygame.mask.from_surface(self.image)
         
-        # 2. Systems
+        # 2. Systems (References assigned by Game.reset_game)
         self.physics = FlightPhysics()
+        self.combat_system = None
+        self.heat_system = None
         self.particles = [] 
         self.smoke_timer = 0
         
         # 3. Stats & State
         self.health = PLAYER_HEALTH
         self.is_alive = True
-        self.distance = 0
+        self.scrap = 0        # FIXED: Added scrap attribute
+        self.distance = 0     # FIXED: Initialized distance
         self.heat = 0.0
         self.weight = 0
         self.max_weight = MAX_WEIGHT_CAPACITY 
@@ -77,7 +87,7 @@ class Player(pygame.sprite.Sprite):
         self.is_skimming = False
         self.leeches = 0
         
-        # --- NEW SECONDARY WEAPONS ---
+        # Secondary Weapons
         self.missiles = 0
         self.max_missiles = 15
         self.bombs = 0
@@ -115,7 +125,9 @@ class Player(pygame.sprite.Sprite):
 
     def emit_detailed_particles(self, dt):
         self.smoke_timer += dt
-        heat_ratio = self.heat / HEAT_MAX
+        # Use heat_system if available, otherwise fallback to self.heat
+        current_heat = self.heat_system.heat if self.heat_system else self.heat
+        heat_ratio = current_heat / HEAT_MAX
         
         spawn_rate = 0.04
         if not self.is_alive:
@@ -131,6 +143,11 @@ class Player(pygame.sprite.Sprite):
             self.smoke_timer = 0
 
     def update(self, dt):
+        # Sync with heat system if it exists
+        if self.heat_system:
+            self.heat = self.heat_system.heat
+            self.is_stalled = self.heat_system.is_stalled
+
         if self.invincible:
             if pygame.time.get_ticks() - self.invincible_timer > self.invincible_duration * 1000:
                 self.invincible = False
@@ -139,9 +156,8 @@ class Player(pygame.sprite.Sprite):
         self.apply_tilt()
         self.is_skimming = self.rect.bottom >= GROUND_LINE - 5
         
-        # 2. Death Sequence Logic
+        # Death Sequence Logic
         if not self.is_alive:
-            # Slow descent and "shedding" weight as we crash
             self.rect.y += (GRAVITY * 0.8) * dt
             self.rect.x += math.sin(pygame.time.get_ticks() * 0.01) * 2
             self.weight = max(0, self.weight - 10 * dt)
@@ -150,7 +166,7 @@ class Player(pygame.sprite.Sprite):
             if (time_since_death > 2.0 or self.rect.bottom >= HEIGHT) and not self.has_exploded:
                 self.trigger_final_explosion()
 
-        # 3. Movement
+        # Movement recovery handled by heat system now, but keeping for safety
         if self.is_alive:
             self.handle_recovery(dt)
         
@@ -170,7 +186,8 @@ class Player(pygame.sprite.Sprite):
             self.particles.append(Particle(ex_x, ex_y, "smoke", 1.0))
 
     def handle_recovery(self, dt):
-        if self.is_stalled:
+        # If no external heat system, handle stall timer locally
+        if not self.heat_system and self.is_stalled:
             if pygame.time.get_ticks() - self.stall_timer > OVERHEAT_STALL_TIME * 1000:
                 self.is_stalled = False
 
@@ -184,10 +201,12 @@ class Player(pygame.sprite.Sprite):
             if flight_input["thrust"]:
                 thrust_active = True
                 is_holding = flight_input["is_holding"]
-                self.apply_heat(dt, is_holding)
+                # Only apply heat locally if HeatSystem isn't handling it via main.py
+                if not self.heat_system:
+                    self.apply_heat(dt, is_holding)
         
-        cooldown_rate = HEAT_COOLDOWN_SKIM if self.is_skimming else HEAT_COOLDOWN_AIR
-        if not thrust_active:
+        if not self.heat_system and not thrust_active:
+            cooldown_rate = HEAT_COOLDOWN_SKIM if self.is_skimming else HEAT_COOLDOWN_AIR
             self.heat = max(0, self.heat - (cooldown_rate * dt))
         
         self.physics.is_stalled = self.is_stalled
@@ -234,14 +253,16 @@ class Player(pygame.sprite.Sprite):
             
         self.rotation += (target_rotation - self.rotation) * 0.1
         self.image = pygame.transform.rotate(self.base_image, self.rotation)
-        if self.is_alive:
-            self.rect = self.image.get_rect(center=self.rect.center)
+        
+        # Maintain center point during rotation
+        self.rect = self.image.get_rect(center=self.rect.center)
         self.mask = pygame.mask.from_surface(self.image)
 
     def draw(self, screen):
         for p in self.particles:
             p.draw(screen)
             
+        # Flicker effect when invincible
         if self.invincible and (pygame.time.get_ticks() // 100) % 2 == 0:
             return
 

@@ -58,10 +58,9 @@ class MainMenu:
         self.particles = [MenuParticle() for _ in range(40)]
         self.pulse_timer = 0
         
-        # Options - STORY MODE ADDED HERE
-        self.options = ["Arcade Mode", "Story Mode", "Workshop", "Exit"]
+        # STREAMLINED OPTIONS
+        self.options = ["Start Game", "Workshop", "Exit"]
         self.selected_index = 0
-        # Dynamically set alpha for whatever number of buttons we have
         self.button_alphas = [0] * len(self.options)
 
         # Start Music
@@ -165,8 +164,8 @@ class MainMenu:
                     x_pos = WIDTH//2 - surf.get_width()//2
                     if is_sel: x_pos += math.sin(self.pulse_timer * 2) * 5
                     
-                    # Vertical spacing adjusted slightly for 4 buttons
-                    self.screen.blit(surf, (x_pos, 330 + i * 65))
+                    # Vertical spacing for 3 buttons
+                    self.screen.blit(surf, (x_pos, 350 + i * 80))
             except: pass
 
     def handle_input(self, event):

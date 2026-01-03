@@ -2,7 +2,8 @@ import pygame
 from entities.projectiles import ProjectileManager
 
 class CombatSystem:
-    def __init__(self):
+    def __init__(self, game):
+        self.game = game  # Reference to access enemy_manager and player
         self.manager = ProjectileManager()
         self.selected_weapon = "machine_gun" # machine_gun, missile, gravity_bomb
         
@@ -17,6 +18,8 @@ class CombatSystem:
 
     def update(self, dt):
         self.manager.update(dt)
+        # Collision logic is handled in main.py _handle_collisions for now
+        # but having the game reference here allows for future expansion.
 
     def draw(self, screen):
         self.manager.draw(screen)

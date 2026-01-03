@@ -6,7 +6,7 @@ from core.engine import Engine
 from entities.player import Player
 from world.parallax import ParallaxBackground
 from entities.scrap import ScrapManager
-from entities.enemies import EnemyManager
+from entities.enemy_manager import EnemyManager
 from world.ground_logic import Ground       
 from world.obstacle_gen import ObstacleManager 
 from ui.menus import MainMenu, GameOverScreen
@@ -17,27 +17,9 @@ from ui.dialogue_box import DialogueBox
 from systems.combat_system import CombatSystem
 from systems.heat_system import HeatSystem
 from systems.upgrade_manager import UpgradeManager
-from ui.workshop_menu import WorkshopMenu # <--- Added Workshop Import
+from ui.workshop_menu import WorkshopMenu 
 from entities.projectiles import GravityWave
-
-class ExplosionParticle:
-    """Fallback simple particles for non-bullet impacts (ambient smoke)."""
-    def __init__(self, x, y, color=LUMEN_GOLD):
-        self.pos = [x, y]
-        self.vel = [random.uniform(-5, 5), random.uniform(-5, 5)]
-        self.life = 1.0
-        self.color = color
-
-    def update(self, dt):
-        self.pos[0] += self.vel[0]
-        self.pos[1] += self.vel[1]
-        self.life -= 2.0 * dt
-
-    def draw(self, screen):
-        if self.life > 0:
-            radius = int(self.life * 6)
-            if radius > 0:
-                pygame.draw.circle(screen, self.color, (int(self.pos[0]), int(self.pos[1])), radius)
+from entities.enemies import BlightBeast, GloomBat, BushMonster, MonsterSaucer, BlightTitan # Added BlightTitan
 
 class Game:
     def __init__(self, screen):
@@ -48,12 +30,11 @@ class Game:
         self.menu = MainMenu(self.screen)
         self.game_over_screen = GameOverScreen(self.screen)
         
-        # Persistent Systems (Loaded once)
+        # Persistent Systems
         self.upgrade_manager = UpgradeManager()
-        # Initialize the Workshop Menu
-        self.workshop = WorkshopMenu(self.screen, self.upgrade_manager) # <--- Added Workshop instance
+        self.workshop = WorkshopMenu(self.screen, self.upgrade_manager) 
         
-        # Game Entities & Managers
+        # Entities
         self.player = None
         self.parallax = None
         self.ground = None          
@@ -61,7 +42,7 @@ class Game:
         self.scrap_manager = None
         self.enemy_manager = None
         
-        # Modular Combat Systems
+        # Combat Systems
         self.combat_system = None
         self.heat_system = None
         
@@ -77,17 +58,15 @@ class Game:
         self.ground = Ground()      
         self.obstacle_manager = ObstacleManager() 
         self.scrap_manager = ScrapManager()
-        self.enemy_manager = EnemyManager()
         
-        # Initialize Combat & Heat
-        self.combat_system = CombatSystem()
+        # Initialize Managers
+        self.enemy_manager = EnemyManager(self)
+        self.combat_system = CombatSystem(self)
         self.heat_system = HeatSystem()
         
-        # Link systems to player
+        # Link systems
         self.player.heat_system = self.heat_system 
         self.player.combat_system = self.combat_system 
-        
-        # APPLY PERMANENT UPGRADES FROM WORKSHOP
         self.upgrade_manager.apply_all_upgrades(self.player)
         
         self.hud = HUD()            
@@ -96,34 +75,37 @@ class Game:
         self.score = 0
         self.state = "PLAYING"
         
+        # Initial track load
+        try:
+            pygame.mixer.music.load("assets/audio/background_track.wav")
+            pygame.mixer.music.play(-1)
+        except:
+            pass
+            
         self.dialogue.trigger_random_quip("enemies")
 
     def handle_event(self, event):
         if self.state == "MENU":
             selection = self.menu.handle_input(event)
-            if selection == "Arcade Mode":
+            if selection == "Start Game":
                 self.reset_game()
-            elif selection == "Workshop": # <--- Link to Workshop
+            elif selection == "Workshop":
                 self.state = "WORKSHOP"
             elif selection == "Exit":
                 pygame.quit()
                 sys.exit()
         
         elif self.state == "WORKSHOP":
-            # Handle Workshop Input
             result = self.workshop.handle_input(event)
             if result == "BACK":
                 self.state = "MENU"
                 self.menu.menu_state = "READY"
             elif result in self.upgrade_manager.stats:
-                # Attempt to buy the upgrade (no live player needed here, 
-                # stats are applied during reset_game)
-                self.upgrade_manager.attempt_upgrade(result, None)
+                self.upgrade_manager.attempt_upgrade(result, self.player)
 
         elif self.state == "GAMEOVER":
             selection = self.game_over_screen.handle_input(event)
-            if selection == "Retry":
-                self.reset_game()
+            if selection == "Retry": self.reset_game()
             elif selection == "Main Menu":
                 self.state = "MENU"
                 self.menu.menu_state = "READY"
@@ -133,105 +115,139 @@ class Game:
 
         elif self.state == "PLAYING":
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_p:
-                    self.state = "PAUSED"
+                if event.key == pygame.K_p: self.state = "PAUSED"
                 if event.key == pygame.K_ESCAPE:
                     self.state = "MENU"
                     self.menu.menu_state = "READY"
                 
+                # Missile Sub-weapon
                 if event.key == pygame.K_r and self.player.missiles > 0:
                     self.player.missiles -= 1
                     self.combat_system.selected_weapon = "missile"
                     self.combat_system.fire(self.player, self.enemy_manager.enemies, 0)
                 
+                # Gravity Bomb
                 if event.key == pygame.K_g and self.player.bombs > 0:
                     self.player.bombs -= 1
                     self.combat_system.manager.trigger_gravity_bomb(self.player)
         
         elif self.state == "PAUSED":
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_p or event.key == pygame.K_ESCAPE:
-                    self.state = "PLAYING"
+            if event.type == pygame.KEYDOWN and event.key in [pygame.K_p, pygame.K_ESCAPE]:
+                self.state = "PLAYING"
 
     def update(self, dt, flight_input, combat_input):
         if self.state == "MENU":
             self.menu.update(dt)
             return 
-
-        if self.state == "WORKSHOP": # <--- Update Workshop Particles
+        if self.state == "WORKSHOP":
             self.workshop.update(dt)
             return
-
-        if self.state == "PAUSED":
-            return 
-        
+        if self.state == "PAUSED": return 
         if self.state == "GAMEOVER":
             self.game_over_screen.update(dt)
             return
 
-        # --- CORE GAMEPLAY ---
-        scroll_speed = 0 if not self.player.is_alive else 1.0
+        # Distance Tracking
+        scroll_speed = 1.0 if self.player.is_alive else 0
         self.player.distance += dt * 50 * scroll_speed
         
+        # World Update
         self.parallax.update(self.player.distance, dt) 
         self.ground.update(dt, self.player.rect, self.player.is_skimming) 
         self.obstacle_manager.update(dt) 
         self.scrap_manager.update(dt, self.player.rect.center)
         
+        # Player Update
         self.player.handle_input(flight_input, dt) 
         self.player.update(dt)
 
         if not self.player.is_alive and self.player.has_exploded:
             if self.state == "PLAYING":
-                earned = self.upgrade_manager.convert_score_to_bolts(self.score)
+                self.upgrade_manager.convert_score_to_bolts(self.score)
                 self.state = "GAMEOVER"
 
+        # Combat Update
         is_firing = False
         if self.player.is_alive and combat_input["firing"]:
             self.combat_system.selected_weapon = "machine_gun"
             heat_added = self.combat_system.fire(self.player, self.enemy_manager.enemies, dt)
-            if heat_added > 0:
+            if heat_added:
                 self.heat_system.add_heat(heat_added)
                 is_firing = True
 
         self.heat_system.update(dt, is_firing)
         self.combat_system.update(dt)
-        self.enemy_manager.update(dt, self.player.rect.center, self.combat_system.manager)
+        
+        # Updated Enemy Manager update call
+        self.enemy_manager.update(dt, self.player.rect.center, self.combat_system.manager) 
         
         self.hud.update(dt, self.player)     
         self.dialogue.update(dt, self.player) 
         self._handle_collisions()
 
-        for e in self.explosions[:]:
-            e.update(dt)
-            if e.life <= 0: self.explosions.remove(e)
-
     def _handle_collisions(self):
         pm = self.combat_system.manager
-        rock_collision = pygame.sprite.spritecollide(self.player, self.obstacle_manager.obstacles, True, pygame.sprite.collide_mask)
-        if rock_collision:
+        
+        # 1. Player vs Environment
+        if pygame.sprite.spritecollide(self.player, self.obstacle_manager.obstacles, True, pygame.sprite.collide_mask):
             self.player.take_damage(25) 
             pm.trigger_explosion(self.player.rect.centerx, self.player.rect.centery)
 
+        # 2. Player vs Enemy Bullets/Lasers
         bullet_hits = pygame.sprite.spritecollide(self.player, pm.enemy_bullets, True)
         for bullet in bullet_hits:
             self.player.take_damage(10)
             pm.trigger_explosion(bullet.rect.centerx, bullet.rect.centery)
 
+        # 3. Player Bullets vs Enemies
         enemy_hits = pygame.sprite.groupcollide(self.enemy_manager.enemies, pm.player_bullets, False, False)
         for enemy, bullets in enemy_hits.items():
             for b in bullets:
                 if not isinstance(b, GravityWave): 
                     pm.trigger_explosion(b.rect.centerx, b.rect.centery)
                     b.kill()
-                if enemy.take_damage(b.damage):
-                    enemy.kill()
-                    self.score += 150
+                
+                if hasattr(enemy, 'take_damage'):
+                    is_dead = enemy.take_damage(10) # Bullets do 10 damage
+                    if is_dead:
+                        self.enemy_manager.trigger_death_effect(enemy.rect.centerx, enemy.rect.centery)
+                        
+                        # --- BOSS DEFEAT RESET LOGIC ---
+                        if isinstance(enemy, BlightTitan):
+                            self.score += 15000
+                            self.player.scrap += 250
+                            
+                            # Signal the manager to restore the sky and resume normal spawning
+                            self.enemy_manager.boss_active = False
+                            self.enemy_manager.warning_timer = 0
+                            self.enemy_manager.next_boss_dist += random.randint(5000, 8000)
+                            
+                            # Restore Normal Music
+                            try:
+                                pygame.mixer.music.load("assets/audio/background_track.wav")
+                                pygame.mixer.music.play(-1)
+                            except:
+                                print("Main theme not found, continuing in silence.")
+                                
+                            self.dialogue.trigger_random_quip("boss_kill")
+                        
+                        # --- STANDARD REWARDS ---
+                        elif isinstance(enemy, BlightBeast):
+                            self.score += 1000
+                            self.player.scrap += 10
+                        else:
+                            self.score += 150
+                            self.player.scrap += 1
+                            
+                        enemy.kill()
 
+        # 4. Scrap Collection
         scrap_hits = pygame.sprite.spritecollide(self.player, self.scrap_manager.scrap_group, True)
         for scrap in scrap_hits:
             self.score += scrap.value
+            self.player.scrap += 5 
             self.player.weight = min(self.player.max_weight, self.player.weight + scrap.weight_value)
+            
             if scrap.scrap_type == "missile":
                 self.player.missiles = min(self.player.max_missiles, self.player.missiles + 5)
             elif scrap.scrap_type == "bomb":
@@ -241,8 +257,7 @@ class Game:
         if self.state == "MENU":
             self.menu.draw()
             return 
-        
-        if self.state == "WORKSHOP": # <--- Draw Workshop
+        if self.state == "WORKSHOP":
             self.workshop.draw()
             return
 
@@ -251,9 +266,8 @@ class Game:
         self.obstacle_manager.draw(screen)
         self.scrap_manager.draw(screen)
         
-        for e in self.explosions: e.draw(screen)
-            
         self.enemy_manager.draw(screen)
+        
         self.combat_system.draw(screen) 
         self.player.draw(screen)
         self.hud.draw(screen, self.player, self.score)

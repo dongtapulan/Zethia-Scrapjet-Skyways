@@ -8,20 +8,18 @@ class GloomParticle:
     """Purple aura particles for enemies."""
     def __init__(self, x, y):
         self.pos = pygame.Vector2(x, y)
-        # Random drift for the aura
         self.vel = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
         self.life = 255
         self.size = random.randint(2, 4)
 
     def update(self, dt):
         self.pos += self.vel * 20 * dt
-        self.life -= 500 * dt # Fades out quickly
+        self.life -= 500 * dt
 
     def draw(self, screen):
         if self.life > 0:
             s = pygame.Surface((self.size*2, self.size*2), pygame.SRCALPHA)
-            # Dark purple core to light purple edge
-            color = (120, 0, 200, int(self.life))
+            color = (120, 0, 200, int(max(0, self.life)))
             pygame.draw.circle(s, color, (self.size, self.size), self.size)
             screen.blit(s, self.pos)
 
@@ -31,13 +29,13 @@ class Enemy(pygame.sprite.Sprite):
         try:
             self.image = pygame.image.load(sprite_path).convert_alpha()
         except:
-            # Fallback if image is missing
             self.image = pygame.Surface((40, 40))
             self.image.fill((100, 0, 100))
             
         self.rect = self.image.get_rect(center=(x, y))
         self.pos = pygame.Vector2(x, y)
         self.hp = hp
+        self.max_hp = hp
         self.particles = []
 
     def take_damage(self, amount):
@@ -45,7 +43,6 @@ class Enemy(pygame.sprite.Sprite):
         return self.hp <= 0
 
     def update_aura(self, dt):
-        # Spawn new particles randomly around the sprite
         if random.random() < 0.4:
             off_x = random.randint(-15, 15)
             off_y = random.randint(-15, 15)
@@ -68,12 +65,10 @@ class GloomBat(Enemy):
 
     def update(self, dt, player_pos, proj_manager):
         self.update_aura(dt)
-        # Wave movement
         self.pos.x -= self.speed * dt
         self.pos.y += math.sin(pygame.time.get_ticks() * 0.005) * 2
         self.rect.center = self.pos
         
-        # Shoot 8-way circular burst
         self.shoot_timer += dt
         if self.shoot_timer > 2.5:
             for angle in range(0, 360, 45):
@@ -92,10 +87,9 @@ class BushMonster(Enemy):
         self.pos.x -= self.speed * dt
         self.rect.center = self.pos
         
-        # Horizontal Laser Attack
         self.attack_timer += dt
         if self.attack_timer > 3.5:
-            laser = GloomLaser(0, self.rect.centery) # Spans across screen
+            laser = GloomLaser(0, self.rect.centery)
             proj_manager.enemy_bullets.add(laser)
             self.attack_timer = 0
 
@@ -106,7 +100,6 @@ class MonsterSaucer(Enemy):
 
     def update(self, dt, player_pos, proj_manager):
         self.update_aura(dt)
-        # Aggressive Distraction: Glides toward player's Y level
         if self.rect.centery < player_pos[1]:
             self.pos.y += 100 * dt
         else:
@@ -115,39 +108,69 @@ class MonsterSaucer(Enemy):
         self.pos.x -= self.speed * dt
         self.rect.center = self.pos
 
-class EnemyManager:
-    def __init__(self):
-        self.enemies = pygame.sprite.Group()
-        self.spawn_timer = 0
-        self.spawn_delay = 3.0 # Spawns enemy every 3 seconds
-
-    def spawn(self):
-        y = random.randint(100, HEIGHT - 100)
-        choice = random.random()
-        
-        if choice < 0.5:
-            self.enemies.add(GloomBat(WIDTH + 50, y))
-        elif choice < 0.8:
-            self.enemies.add(MonsterSaucer(WIDTH + 50, y))
-        else:
-            self.enemies.add(BushMonster(WIDTH + 50, y))
+class BlightBeast(Enemy):
+    def __init__(self, x, y):
+        # Elite Enemy - High HP
+        super().__init__("assets/sprites/enemies/blight_beast.png", x, y, 40)
+        self.speed = 220
+        self.timer = 0
+        self.glow_timer = 0
 
     def update(self, dt, player_pos, proj_manager):
-        self.spawn_timer += dt
-        if self.spawn_timer >= self.spawn_delay:
-            self.spawn()
-            self.spawn_timer = 0
-            # Slowly speed up spawning over time
-            self.spawn_delay = max(1.2, self.spawn_delay - 0.05)
-            
-        for enemy in self.enemies:
-            # Note: We pass the proj_manager so enemies can add bullets to its groups
-            enemy.update(dt, player_pos, proj_manager)
-            if enemy.rect.right < -100:
-                enemy.kill()
+        self.update_aura(dt)
+        self.timer += dt
+        self.glow_timer += dt
+        self.pos.x -= self.speed * dt
+        # Elite wavy movement
+        self.pos.y += math.sin(self.timer * 5) * 3
+        self.rect.center = self.pos
 
-    def draw(self, screen):
-        # Draw aura first so it's behind the enemy sprite
-        for enemy in self.enemies:
-            enemy.draw_aura(screen)
-        self.enemies.draw(screen)
+    def draw_glow(self, screen):
+        pulse = (math.sin(self.glow_timer * 8) + 1) * 0.5
+        glow_radius = int(35 + (pulse * 15))
+        glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
+        color = (180, 50, 255, int(60 + pulse * 40)) 
+        pygame.draw.circle(glow_surf, color, (glow_radius, glow_radius), glow_radius)
+        screen.blit(glow_surf, (self.rect.centerx - glow_radius, self.rect.centery - glow_radius), special_flags=pygame.BLEND_RGB_ADD)
+
+# Add this to the bottom of entities/enemies.py
+
+class BlightTitan(Enemy):
+    def __init__(self, x, y):
+        # High HP Boss
+        super().__init__("assets/sprites/enemies/blight_titan.png", x, y, 500)
+        self.speed = 40
+        self.attack_timer = 0
+        self.angle_offset = 0
+        self.is_boss = True # Tag for the manager
+        self.entrance_timer = 0
+        self.target_y = HEIGHT // 2
+
+    def update(self, dt, player_pos, proj_manager):
+        self.update_aura(dt)
+        
+        # Entrance Logic: Move to center screen then hover
+        if self.rect.centerx > WIDTH - 200:
+            self.pos.x -= self.speed * 2 * dt
+        else:
+            # Hover movement
+            self.pos.y += math.sin(pygame.time.get_ticks() * 0.002) * 1
+            
+        self.rect.center = self.pos
+
+        # Attack Pattern: Circular Laser Burst
+        self.attack_timer += dt
+        if self.attack_timer > 0.1: # Rapid fire circular spray
+            self.angle_offset += 15
+            for angle in range(0, 360, 60): # 6-way laser beams
+                bullet = EnemyBullet(self.rect.centerx, self.rect.centery, angle + self.angle_offset)
+                proj_manager.enemy_bullets.add(bullet)
+            self.attack_timer = 0
+
+    def draw_glow(self, screen):
+        # Massive boss-level glow
+        pulse = (math.sin(pygame.time.get_ticks() * 0.005) + 1) * 0.5
+        radius = int(120 + pulse * 40)
+        glow_surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        pygame.draw.circle(glow_surf, (150, 0, 255, 40), (radius, radius), radius)
+        screen.blit(glow_surf, (self.rect.centerx - radius, self.rect.centery - radius), special_flags=pygame.BLEND_RGB_ADD)
