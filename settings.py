@@ -51,6 +51,8 @@ GROUND_LINE = HEIGHT - GROUND_HEIGHT
 FONT_MAIN = "assets/fonts/8-bitanco.ttf"
 SFX_MACHINE_GUN = "assets/sfx/machine_gun.mp3"
 
-# --- HUD & Stats ---
-HEALTH_BAR_COLOR = (255, 50, 50)
-DISTANCE_GOAL = 50000  # How far Huey needs to go
+# --- Difficulty & Scaling ---
+BASE_SCROLL_SPEED = 250      # Matches your PLAYER_SPEED
+MAX_SCROLL_SPEED = 600       # 3x speed cap
+SCALING_DIFFICULTY_STEP = 10000 # Every 1000m, things get faster
+SCALING_SPEED_INC = 0.05      # 10% speed increase per step
