@@ -9,18 +9,18 @@ NIGHT_NAVY = (15, 15, 35)
 MIDNIGHT_PURPLE = (30, 20, 50)
 LUMEN_GOLD = (255, 215, 0)
 WHITE = (255, 255, 255)
+BOSS_SKY_COLOR = (45, 10, 50) # Dark Corrupted Purple
 
 class Sun:
     def __init__(self):
         self.center_x = WIDTH // 2
-        self.center_y = GROUND_LINE  # Orbit around the ground line
+        self.center_y = GROUND_LINE
         self.orbit_radius = WIDTH // 2 + 100
         self.pos = [0, 0]
         self.radius = 45
         self.color = list(LUMEN_GOLD)
 
     def update(self, angle):
-        # Angle 0 = Sunrise, Angle PI = Sunset, Angle > PI = Night (Moon)
         self.pos[0] = self.center_x + math.cos(angle) * self.orbit_radius
         self.pos[1] = self.center_y - math.sin(angle) * self.orbit_radius
 
@@ -28,13 +28,11 @@ class Sun:
         color = (200, 210, 255) if is_night else self.color
         glow_color = (100, 100, 150, 40) if is_night else (255, 200, 50, 60)
         
-        # Draw Glow
         glow_size = self.radius * 2 if not is_night else self.radius * 1.5
-        glow_surf = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
+        glow_surf = pygame.Surface((int(glow_size * 2), int(glow_size * 2)), pygame.SRCALPHA)
         pygame.draw.circle(glow_surf, glow_color, (int(glow_size), int(glow_size)), int(glow_size))
         screen.blit(glow_surf, (self.pos[0] - glow_size, self.pos[1] - glow_size))
         
-        # Draw Main Body
         pygame.draw.circle(screen, color, (int(self.pos[0]), int(self.pos[1])), self.radius)
 
 class Star:
@@ -45,11 +43,9 @@ class Star:
         self.flicker = random.uniform(0, math.pi)
 
     def draw(self, screen, alpha):
-        # FIX: Ensure alpha is a positive integer and clamp it
         current_alpha = max(0, min(255, int(alpha)))
         if current_alpha <= 0: return
 
-        # Calculate flicker wave and ensure it stays in bounds
         flicker_val = (0.4 + 0.6 * math.sin(pygame.time.get_ticks() * 0.003 + self.flicker))
         s_alpha = int(max(0, min(255, current_alpha * flicker_val)))
         
@@ -137,10 +133,17 @@ class ParallaxBackground:
         self.stars = [Star() for _ in range(70)]
         self.star_alpha = 0
         self.sun = Sun()
-        
+        self.boss_factor = 0.0
+        self.target_boss_factor = 0.0
         self.wind_streaks = [WindStreak() for _ in range(8)]
         self.birds = [Bird() for _ in range(3)]
-        self.cloud_img = pygame.image.load("assets/backgrounds/cloud.png").convert_alpha()
+        
+        try:
+            self.cloud_img = pygame.image.load("assets/backgrounds/cloud.png").convert_alpha()
+        except:
+            self.cloud_img = pygame.Surface((100, 50), pygame.SRCALPHA)
+            pygame.draw.ellipse(self.cloud_img, (255, 255, 255, 150), (0, 0, 100, 50))
+            
         self.active_clouds = []
         self.spawn_timer = 0
         for _ in range(5):
@@ -149,33 +152,49 @@ class ParallaxBackground:
         self.mountains = ParallaxLayer("assets/backgrounds/mountain.png", 50, GROUND_LINE - 280, True)
         self.ground_layer = ParallaxLayer("assets/backgrounds/ground.jpeg", 200, GROUND_LINE, True)
 
+    def enter_boss_mode(self):
+        self.target_boss_factor = 1.0
+
+    def exit_boss_mode(self):
+        """Forces an immediate reset to prevent purple sky hanging around."""
+        self.target_boss_factor = 0.0
+        self.boss_factor = 0.0 
+
     def update(self, player_distance, dt):
-        # One full cycle every 40km
+        # 1. Update Boss Interpolation
+        if self.boss_factor < self.target_boss_factor:
+            self.boss_factor = min(self.target_boss_factor, self.boss_factor + 2.0 * dt)
+        elif self.boss_factor > self.target_boss_factor:
+            self.boss_factor = max(self.target_boss_factor, self.boss_factor - 4.0 * dt) # Faster fade out
+
+        # 2. Cycle Math
         time_angle = (player_distance / 40000.0) * (2 * math.pi)
         normalized_angle = time_angle % (2 * math.pi)
-        
         self.sun.update(normalized_angle)
         is_night = normalized_angle > math.pi
-
-        # Dynamic Color Logic
         day_intensity = max(0, math.sin(normalized_angle))
         
         if not is_night:
-            # Shift from Orange (Dawn) -> Blue (Noon) -> Orange (Dusk)
-            target_r = SUNSET_ORANGE[0] * (1 - day_intensity) + SKY_BLUE[0] * day_intensity
-            target_g = SUNSET_ORANGE[1] * (1 - day_intensity) + SKY_BLUE[1] * day_intensity
-            target_b = SUNSET_ORANGE[2] * (1 - day_intensity) + SKY_BLUE[2] * day_intensity
+            base_r = SUNSET_ORANGE[0] * (1 - day_intensity) + SKY_BLUE[0] * day_intensity
+            base_g = SUNSET_ORANGE[1] * (1 - day_intensity) + SKY_BLUE[1] * day_intensity
+            base_b = SUNSET_ORANGE[2] * (1 - day_intensity) + SKY_BLUE[2] * day_intensity
             self.star_alpha = max(0, self.star_alpha - 250 * dt)
         else:
-            # Shift from Orange (Dusk) -> Navy (Midnight)
             night_intensity = abs(math.sin(normalized_angle))
-            target_r = SUNSET_ORANGE[0] * (1 - night_intensity) + NIGHT_NAVY[0] * night_intensity
-            target_g = SUNSET_ORANGE[1] * (1 - night_intensity) + NIGHT_NAVY[1] * night_intensity
-            target_b = SUNSET_ORANGE[2] * (1 - night_intensity) + NIGHT_NAVY[2] * night_intensity
+            base_r = SUNSET_ORANGE[0] * (1 - night_intensity) + NIGHT_NAVY[0] * night_intensity
+            base_g = SUNSET_ORANGE[1] * (1 - night_intensity) + NIGHT_NAVY[1] * night_intensity
+            base_b = SUNSET_ORANGE[2] * (1 - night_intensity) + NIGHT_NAVY[2] * night_intensity
             self.star_alpha = min(255, self.star_alpha + 100 * dt)
 
-        self.bg_color = [int(target_r), int(target_g), int(target_b)]
+        # 3. Boss Blending
+        b_f = max(0.0, min(1.0, self.boss_factor))
+        final_r = base_r * (1 - b_f) + BOSS_SKY_COLOR[0] * b_f
+        final_g = base_g * (1 - b_f) + BOSS_SKY_COLOR[1] * b_f
+        final_b = base_b * (1 - b_f) + BOSS_SKY_COLOR[2] * b_f
 
+        self.bg_color = [int(final_r), int(final_g), int(final_b)]
+
+        # --- Objects ---
         for s in self.wind_streaks: s.update(dt)
         for b in self.birds: b.update(dt)
         self.spawn_timer += dt
@@ -186,19 +205,20 @@ class ParallaxBackground:
             cloud.update(dt)
             if cloud.x < -cloud.width: self.active_clouds.remove(cloud)
 
-        self.mountains.update(dt)
-        self.ground_layer.update(dt)
+        speed_mult = 1.0 + (b_f * 0.5)
+        self.mountains.update(dt * speed_mult)
+        self.ground_layer.update(dt * speed_mult)
 
     def draw(self, screen):
         screen.fill(tuple(self.bg_color))
         
-        # Stars (only pass positive int alpha)
         safe_star_alpha = int(max(0, min(255, self.star_alpha)))
+        total_star_alpha = max(safe_star_alpha, int(self.boss_factor * 150))
         for star in self.stars:
-            star.draw(screen, safe_star_alpha)
+            star.draw(screen, total_star_alpha)
 
-        # Sun/Moon Draw (passes True if sky is dark enough)
-        self.sun.draw(screen, safe_star_alpha > 120) 
+        if self.boss_factor < 0.8:
+            self.sun.draw(screen, safe_star_alpha > 120) 
         
         for cloud in self.active_clouds: cloud.draw(screen)
         for b in self.birds: b.draw(screen)

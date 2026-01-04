@@ -27,15 +27,17 @@ class Explosion(pygame.sprite.Sprite):
             self.kill()
 
 class GravityWave(pygame.sprite.Sprite):
-    def __init__(self, x, y):
+    def __init__(self, x, y, enemy_group):
         super().__init__()
         self.pos = pygame.Vector2(x, y)
         self.radius = 10
         self.max_radius = 400 
         self.speed = 850
+        self.enemy_group = enemy_group
         self.image = pygame.Surface((self.max_radius * 2, self.max_radius * 2), pygame.SRCALPHA)
         self.rect = self.image.get_rect(center=self.pos)
         self.damage = 100 
+        self.hit_enemies = set() # Prevent multi-hits in one wave
 
     def update(self, dt):
         self.radius += self.speed * dt
@@ -46,6 +48,14 @@ class GravityWave(pygame.sprite.Sprite):
         if self.radius < self.max_radius:
             pygame.draw.circle(self.image, (100, 220, 255, alpha), 
                                (self.max_radius, self.max_radius), int(self.radius), 8)
+            
+            # Distance-based collision for the shockwave
+            for enemy in self.enemy_group:
+                if enemy not in self.hit_enemies:
+                    dist = self.pos.distance_to(enemy.rect.center)
+                    if dist <= self.radius:
+                        enemy.take_damage(self.damage)
+                        self.hit_enemies.add(enemy)
         
         if self.radius >= self.max_radius:
             self.kill()
@@ -53,9 +63,10 @@ class GravityWave(pygame.sprite.Sprite):
 # --- PLAYER WEAPONS ---
 
 class FallingBomb(pygame.sprite.Sprite):
-    def __init__(self, x, y, manager):
+    def __init__(self, x, y, manager, enemy_group):
         super().__init__()
-        self.manager = manager # Reference to manager for explosion
+        self.manager = manager 
+        self.enemy_group = enemy_group
         try:
             self.image = pygame.image.load("assets/sprites/scraps/gravity_bomb_pickup.png").convert_alpha()
             self.image = pygame.transform.scale(self.image, (25, 25))
@@ -67,7 +78,6 @@ class FallingBomb(pygame.sprite.Sprite):
         self.pos = pygame.Vector2(x, y)
         self.vel = pygame.Vector2(300, -350) 
         self.gravity = 1000
-        self.damage = 50 
 
     def update(self, dt):
         self.vel.y += self.gravity * dt
@@ -78,8 +88,7 @@ class FallingBomb(pygame.sprite.Sprite):
             self.explode()
 
     def explode(self):
-        # Trigger wave and the sound/visual explosion via manager
-        wave = GravityWave(self.pos.x, self.pos.y)
+        wave = GravityWave(self.pos.x, self.pos.y, self.enemy_group)
         self.manager.effects.add(wave)
         self.manager.trigger_explosion(self.pos.x, self.pos.y, scale=2.5)
         self.kill()
@@ -87,6 +96,7 @@ class FallingBomb(pygame.sprite.Sprite):
 class Missile(pygame.sprite.Sprite):
     def __init__(self, x, y, enemy_group):
         super().__init__()
+        self.enemy_group = enemy_group
         try:
             self.orig_image = pygame.image.load("assets/sprites/scraps/missile_pickup.png").convert_alpha()
             self.orig_image = pygame.transform.scale(self.orig_image, (35, 18))
@@ -98,7 +108,6 @@ class Missile(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(center=(x, y))
         self.pos = pygame.Vector2(x, y)
         self.vel = pygame.Vector2(400, 0)
-        self.enemy_group = enemy_group
         self.damage = 80 
         self.speed = 700
         self.turn_rate = 6.0 
@@ -115,10 +124,11 @@ class Missile(pygame.sprite.Sprite):
 
         self.pos += self.vel * dt
         self.trail_timer += dt
+        
+        # Internal trail management
         if self.trail_timer > 0.02:
             self.trail_particles.append({"pos": pygame.Vector2(self.pos), "life": 1.0})
             self.trail_timer = 0
-
         for p in self.trail_particles[:]:
             p["life"] -= 2.5 * dt
             if p["life"] <= 0: self.trail_particles.remove(p)
@@ -147,15 +157,16 @@ class Missile(pygame.sprite.Sprite):
                 pygame.draw.circle(screen, (200, 200, 200), (int(p["pos"].x), int(p["pos"].y)), size)
 
 class Bullet(pygame.sprite.Sprite):
-    def __init__(self, x, y):
+    def __init__(self, x, y, enemy_group):
         super().__init__()
+        self.enemy_group = enemy_group
         self.image = pygame.Surface((18, 6), pygame.SRCALPHA)
         pygame.draw.rect(self.image, (255, 255, 0), (0, 0, 18, 6), border_radius=3)
         pygame.draw.rect(self.image, (255, 0, 0), (2, 1, 14, 4), border_radius=2)
         self.rect = self.image.get_rect(center=(x, y))
         self.pos = pygame.Vector2(x, y)
         self.vel = pygame.Vector2(1200, random.uniform(-10, 10))
-        self.damage = 1
+        self.damage = 3
 
     def update(self, dt):
         self.pos += self.vel * dt
@@ -207,11 +218,9 @@ class ProjectileManager:
         self.fire_timer = 0
         self.fire_rate = 0.08 
         
-        # Audio setup
         try:
             self.shoot_sfx = pygame.mixer.Sound(SFX_MACHINE_GUN)
             self.shoot_sfx.set_volume(0.15)
-            # Load explosion sound correctly
             self.explosion_sfx = pygame.mixer.Sound("assets/sfx/explosion.wav")
             self.explosion_sfx.set_volume(0.3)
         except:
@@ -219,18 +228,17 @@ class ProjectileManager:
             self.explosion_sfx = None
 
     def trigger_explosion(self, x, y, scale=1.0):
-        """Creates visual explosion and plays the collision sound."""
         self.effects.add(Explosion(x, y, scale))
         if self.explosion_sfx:
             self.explosion_sfx.play()
 
-    def fire_machine_gun(self, player, dt):
+    def fire_machine_gun(self, player, enemy_group, dt):
         if not player.is_alive or player.is_stalled: return False
         self.fire_timer += dt
         if self.fire_timer >= self.fire_rate:
             if player.weight > 0:
                 player.weight = max(0, player.weight - BULLET_SHED_AMOUNT) 
-            self.player_bullets.add(Bullet(player.rect.right, player.rect.centery + 10))
+            self.player_bullets.add(Bullet(player.rect.right, player.rect.centery + 10, enemy_group))
             if self.shoot_sfx: self.shoot_sfx.play()
             self.fire_timer = 0
             return True
@@ -239,15 +247,31 @@ class ProjectileManager:
     def launch_missile(self, player, enemy_group):
         self.player_bullets.add(Missile(player.rect.right, player.rect.centery, enemy_group))
 
-    def trigger_gravity_bomb(self, player):
-        # Pass self (manager) to the bomb so it can trigger the explosion sound later
-        bomb = FallingBomb(player.rect.right, player.rect.centery, self)
+    def trigger_gravity_bomb(self, player, enemy_group):
+        bomb = FallingBomb(player.rect.right, player.rect.centery, self, enemy_group)
         self.player_bullets.add(bomb)
 
     def update(self, dt):
         self.player_bullets.update(dt)
         self.enemy_bullets.update(dt)
         self.effects.update(dt)
+        
+        # --- GLOBAL COLLISION HANDLING ---
+        # This checks every player projectile against the enemies
+        for bullet in self.player_bullets:
+            # We use spritecollide because projectiles have an enemy_group reference
+            hit_enemies = pygame.sprite.spritecollide(bullet, bullet.enemy_group, False)
+            for enemy in hit_enemies:
+                # Missile/Bullet internal damage
+                damage = getattr(bullet, 'damage', 1)
+                enemy.take_damage(damage)
+                
+                # Visual feedback
+                self.trigger_explosion(bullet.rect.centerx, bullet.rect.centery, scale=0.5)
+                
+                # Remove projectile on hit (unless it's a special type you want to pierce)
+                if not isinstance(bullet, FallingBomb):
+                    bullet.kill()
 
     def draw(self, screen):
         for sprite in self.player_bullets:

@@ -18,7 +18,7 @@ class GloomParticle:
 
     def draw(self, screen):
         if self.life > 0:
-            s = pygame.Surface((self.size*2, self.size*2), pygame.SRCALPHA)
+            s = pygame.Surface((int(self.size*2), int(self.size*2)), pygame.SRCALPHA)
             color = (120, 0, 200, int(max(0, self.life)))
             pygame.draw.circle(s, color, (self.size, self.size), self.size)
             screen.blit(s, self.pos)
@@ -37,13 +37,21 @@ class Enemy(pygame.sprite.Sprite):
         self.hp = hp
         self.max_hp = hp
         self.particles = []
+        self.explosion_manager = None  
 
     def take_damage(self, amount):
         self.hp -= amount
-        return self.hp <= 0
+        # Visual feedback for damage
+        self.pos.x += random.randint(-3, 3)
+        
+        if self.hp <= 0:
+            # We don't call self.die() here because main.py handles 
+            # the death logic (score, scrap, etc.) in the collision loop.
+            return True
+        return False
 
     def update_aura(self, dt):
-        if random.random() < 0.4:
+        if random.random() < 0.3:
             off_x = random.randint(-15, 15)
             off_y = random.randint(-15, 15)
             self.particles.append(GloomParticle(self.rect.centerx + off_x, self.rect.centery + off_y))
@@ -100,17 +108,17 @@ class MonsterSaucer(Enemy):
 
     def update(self, dt, player_pos, proj_manager):
         self.update_aura(dt)
+        # Vertical tracking
         if self.rect.centery < player_pos[1]:
-            self.pos.y += 100 * dt
+            self.pos.y += 120 * dt
         else:
-            self.pos.y -= 100 * dt
+            self.pos.y -= 120 * dt
             
         self.pos.x -= self.speed * dt
         self.rect.center = self.pos
 
 class BlightBeast(Enemy):
     def __init__(self, x, y):
-        # Elite Enemy - High HP
         super().__init__("assets/sprites/enemies/blight_beast.png", x, y, 40)
         self.speed = 220
         self.timer = 0
@@ -121,7 +129,6 @@ class BlightBeast(Enemy):
         self.timer += dt
         self.glow_timer += dt
         self.pos.x -= self.speed * dt
-        # Elite wavy movement
         self.pos.y += math.sin(self.timer * 5) * 3
         self.rect.center = self.pos
 
@@ -133,44 +140,41 @@ class BlightBeast(Enemy):
         pygame.draw.circle(glow_surf, color, (glow_radius, glow_radius), glow_radius)
         screen.blit(glow_surf, (self.rect.centerx - glow_radius, self.rect.centery - glow_radius), special_flags=pygame.BLEND_RGB_ADD)
 
-# Add this to the bottom of entities/enemies.py
-
 class BlightTitan(Enemy):
     def __init__(self, x, y):
-        # High HP Boss
         super().__init__("assets/sprites/enemies/blight_titan.png", x, y, 500)
         self.speed = 40
         self.attack_timer = 0
         self.angle_offset = 0
-        self.is_boss = True # Tag for the manager
-        self.entrance_timer = 0
-        self.target_y = HEIGHT // 2
+        self.is_boss = True 
+        self.pos = pygame.Vector2(x, y)
 
     def update(self, dt, player_pos, proj_manager):
         self.update_aura(dt)
         
-        # Entrance Logic: Move to center screen then hover
-        if self.rect.centerx > WIDTH - 200:
-            self.pos.x -= self.speed * 2 * dt
+        # Entrance behavior
+        if self.pos.x > WIDTH - 250:
+            self.pos.x -= self.speed * 3 * dt
         else:
             # Hover movement
-            self.pos.y += math.sin(pygame.time.get_ticks() * 0.002) * 1
+            self.pos.y += math.sin(pygame.time.get_ticks() * 0.002) * 1.5
             
         self.rect.center = self.pos
 
-        # Attack Pattern: Circular Laser Burst
+        # Spiral attack pattern
         self.attack_timer += dt
-        if self.attack_timer > 0.1: # Rapid fire circular spray
-            self.angle_offset += 15
-            for angle in range(0, 360, 60): # 6-way laser beams
+        if self.attack_timer > 0.15: 
+            self.angle_offset += 20
+            # Fire in a 6-way spiral
+            for angle in range(0, 360, 60):
                 bullet = EnemyBullet(self.rect.centerx, self.rect.centery, angle + self.angle_offset)
                 proj_manager.enemy_bullets.add(bullet)
             self.attack_timer = 0
 
     def draw_glow(self, screen):
-        # Massive boss-level glow
         pulse = (math.sin(pygame.time.get_ticks() * 0.005) + 1) * 0.5
-        radius = int(120 + pulse * 40)
+        radius = int(140 + pulse * 30)
         glow_surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(glow_surf, (150, 0, 255, 40), (radius, radius), radius)
+        # Soft purple boss glow
+        pygame.draw.circle(glow_surf, (150, 0, 255, 30), (radius, radius), radius)
         screen.blit(glow_surf, (self.rect.centerx - radius, self.rect.centery - radius), special_flags=pygame.BLEND_RGB_ADD)
