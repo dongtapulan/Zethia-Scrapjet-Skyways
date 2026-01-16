@@ -1,8 +1,8 @@
 {
-    "bolts": 12483,
+    "bolts": 70533,
     "stats": {
-        "Engine Cooling": 5,
-        "Magnetic Hull": 4,
+        "Engine Cooling": 4,
+        "Magnetic Hull": 2,
         "Hull Integrity": 2,
         "Ammo Feed": 4
     },

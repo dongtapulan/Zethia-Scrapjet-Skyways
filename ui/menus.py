@@ -66,7 +66,7 @@ class MainMenu:
         # Start Music
         try:
             if not pygame.mixer.music.get_busy():
-                pygame.mixer.music.load("assets/sfx/menu_theme-ShiningDays.mp3")
+                pygame.mixer.music.load("assets/sfx/menu_theme.mp3")
                 pygame.mixer.music.set_volume(0.2)
                 pygame.mixer.music.play(-1)
         except:

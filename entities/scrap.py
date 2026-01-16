@@ -59,6 +59,14 @@ class Scrap(pygame.sprite.Sprite):
             self.magnet_range = 600
             self.drift_speed = 10
             self.is_companion_scrap = True
+            
+        elif self.scrap_type == "gold_oracle":
+            self.image = images['gold_oracle']
+            self.weight_value = 0
+            self.value = 1000 # Cici is legendary!
+            self.magnet_range = 800 # Super high attraction
+            self.drift_speed = 5
+            self.is_companion_scrap = True
 
         else: # Golden Bolt
             self.image = images['bolt']
@@ -109,26 +117,31 @@ class ScrapManager:
                 'missile': pygame.image.load(path + "missile_pickup.png").convert_alpha(),
                 'bomb': pygame.image.load(path + "gravity_bomb_pickup.png").convert_alpha(),
                 'red_core': pygame.image.load(path + "aether_core_red.png").convert_alpha(),
-                'tine_soul': pygame.image.load(path + "witch_soul_purple.png").convert_alpha()
+                'tine_soul': pygame.image.load(path + "witch_soul_purple.png").convert_alpha(),
+                'gold_oracle': pygame.image.load(path + "goldencore.png").convert_alpha()
             }
         except:
-            self.images = {k: pygame.Surface((30, 30)) for k in ['bolt', 'gear', 'battery', 'missile', 'bomb', 'red_core', 'tine_soul']}
+            # Fallback surfaces if images aren't found
+            self.images = {k: pygame.Surface((30, 30)) for k in ['bolt', 'gear', 'battery', 'missile', 'bomb', 'red_core', 'tine_soul', 'gold_oracle']}
             self.images['red_core'].fill((255, 0, 0))
             self.images['tine_soul'].fill((200, 0, 255))
+            self.images['gold_oracle'].fill((255, 215, 0))
 
     def spawn_pattern(self):
         roll = random.random()
         start_y = random.randint(100, GROUND_LINE - 200)
         
-        # 1. Companion Drop (Adjusted to 20%)
+        # 1. Companion Drop (20% chance for ANY companion core)
         if roll < 0.20:
-            choice = "red_core" if random.random() < 0.5 else "tine_soul"
+            sub_roll = random.random()
+            if sub_roll < 0.57: # 5% chance for Cici (Rare)
+                choice = "gold_oracle"
+            elif sub_roll < 0.57: # Balanced between Red and Tine
+                choice = "red_core"
+            else:
+                choice = "tine_soul"
+                
             self.scrap_group.add(Scrap(WIDTH + 100, start_y, choice, self.images))
-            
-            # 5% chance of a "Lucky Double" jackpot
-            if random.random() < 0.05:
-                other = "tine_soul" if choice == "red_core" else "red_core"
-                self.scrap_group.add(Scrap(WIDTH + 180, start_y + 60, other, self.images))
 
         # 2. Utility Items (35% chance)
         elif roll < 0.55:
@@ -162,10 +175,17 @@ class ScrapManager:
                 glow_size = 55 + pulse
                 
                 glow_surf = pygame.Surface((int(glow_size*2), int(glow_size*2)), pygame.SRCALPHA)
-                color = (255, 40, 40, 90) if scrap.scrap_type == "red_core" else (160, 40, 255, 90)
+                
+                # Dynamic Glow Colors
+                if scrap.scrap_type == "red_core":
+                    color = (255, 40, 40, 90)
+                elif scrap.scrap_type == "tine_soul":
+                    color = (160, 40, 255, 90)
+                else: # Cici's Oracle Glow
+                    color = (255, 255, 100, 110) # Brighter Yellow/Gold
                 
                 pygame.draw.circle(glow_surf, color, (int(glow_size), int(glow_size)), int(glow_size))
-                pygame.draw.circle(glow_surf, (255, 255, 255, 130), (int(glow_size), int(glow_size)), int(glow_size/2.5))
+                pygame.draw.circle(glow_surf, (255, 255, 255, 150), (int(glow_size), int(glow_size)), int(glow_size/2.5))
                 
                 screen.blit(glow_surf, glow_surf.get_rect(center=scrap.rect.center))
         

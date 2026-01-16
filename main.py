@@ -25,6 +25,9 @@ from entities.enemies import BlightBeast, GloomBat, BushMonster, MonsterSaucer, 
 # --- COMPANION SYSTEM IMPORT ---
 from entities.companions import CompanionManager
 
+# --- CUTSCENE IMPORT ---
+from cutscenes.intro_story import IntroCutscene
+
 class Game:
     def __init__(self, screen):
         self.screen = screen
@@ -34,6 +37,8 @@ class Game:
         
         self.upgrade_manager = UpgradeManager()
         self.workshop = WorkshopMenu(self.screen, self.upgrade_manager) 
+        
+        self.intro_cutscene = None
         
         self.player = None
         self.parallax = None
@@ -53,9 +58,9 @@ class Game:
         self.difficulty_mult = 1.0 
 
     def reset_game(self):
+        """Initializes/Resets the game world for a new run."""
         self.player = Player()
         self.parallax = ParallaxBackground()
-        # Force immediate reset on new game start
         self.parallax.boss_factor = 0.0
         self.parallax.exit_boss_mode()
         
@@ -81,7 +86,7 @@ class Game:
         self.state = "PLAYING"
         
         try:
-            pygame.mixer.music.load("assets/audio/background_track.wav")
+            pygame.mixer.music.load("assets/sfx/menu_theme.mp3")
             pygame.mixer.music.play(-1)
         except:
             pass
@@ -91,12 +96,19 @@ class Game:
     def handle_event(self, event):
         if self.state == "MENU":
             selection = self.menu.handle_input(event)
-            if selection == "Start Game": self.reset_game()
-            elif selection == "Workshop": self.state = "WORKSHOP"
+            if selection == "Start Game":
+                self.intro_cutscene = IntroCutscene(self.screen)
+                self.state = "STORY"
+            elif selection == "Workshop":
+                self.state = "WORKSHOP"
             elif selection == "Exit":
                 pygame.quit()
                 sys.exit()
         
+        elif self.state == "STORY":
+            if self.intro_cutscene:
+                self.intro_cutscene.handle_input(event)
+
         elif self.state == "WORKSHOP":
             result = self.workshop.handle_input(event)
             if result == "BACK":
@@ -136,6 +148,13 @@ class Game:
                 self.state = "PLAYING"
 
     def update(self, dt, flight_input, combat_input):
+        if self.state == "STORY":
+            if self.intro_cutscene:
+                self.intro_cutscene.update(dt)
+                if not self.intro_cutscene.active:
+                    self.reset_game()
+            return
+
         if self.state != "PLAYING":
             if self.state == "MENU": self.menu.update(dt)
             if self.state == "WORKSHOP": self.workshop.update(dt)
@@ -147,9 +166,6 @@ class Game:
         scroll_move = dt * current_scroll_speed if self.player.is_alive else 0
         self.player.distance += scroll_move
         
-        # --- PARALLAX UPDATE LOGIC ---
-        # The parallax update() method handles the smooth lerp 
-        # based on target_boss_factor.
         if self.enemy_manager.boss_active:
             self.parallax.enter_boss_mode()
         else:
@@ -189,74 +205,70 @@ class Game:
     def _handle_collisions(self):
         pm = self.combat_system.manager 
         
-        # 1. Player vs Obstacles
         if pygame.sprite.spritecollide(self.player, self.obstacle_manager.obstacles, True, pygame.sprite.collide_mask):
             self.player.take_damage(25) 
             pm.trigger_explosion(self.player.rect.centerx, self.player.rect.centery)
 
-        # 2. Player vs Enemy Bullets
         bullet_hits = pygame.sprite.spritecollide(self.player, pm.enemy_bullets, True)
         for bullet in bullet_hits:
             self.player.take_damage(10)
             pm.trigger_explosion(bullet.rect.centerx, bullet.rect.centery)
 
-        # 3. Enemy Death & Rewards
-        # Note: Actual damage logic is inside ProjectileManager.update() to avoid duplication.
-        # This block checks if the enemy *died* this frame.
         for enemy in self.enemy_manager.enemies:
             if enemy.hp <= 0:
                 self.enemy_manager.trigger_death_effect(enemy.rect.centerx, enemy.rect.centery)
-                
                 if isinstance(enemy, BlightTitan):
-                    # --- BOSS DEFEATED SEQUENCE ---
                     self.score += 15000
                     self.player.scrap += 250
-                    
-                    # 1. Deactivate Boss Logic
                     self.enemy_manager.boss_active = False
-                    
-                    # 2. Trigger Smooth Sky Transition
-                    # We ONLY set the target. We DO NOT force boss_factor to 0.0
-                    # This allows the Parallax class to fade it out gradually.
                     self.parallax.exit_boss_mode() 
-                    
-                    # 3. Set Next Boss Distance
                     self.enemy_manager.next_boss_dist = self.player.distance + random.randint(10000, 15000)
-                    
                     try:
                         pygame.mixer.music.load("assets/audio/background_track.wav")
                         pygame.mixer.music.play(-1)
                     except: pass
                     self.dialogue.trigger_random_quip("boss_kill")
-                
                 elif isinstance(enemy, BlightBeast):
                     self.score += 1000
                     self.player.scrap += 10
                 else:
                     self.score += 150
                     self.player.scrap += 1
-                
                 enemy.kill()
 
-        # 4. Scrap Collection
+        # --- UPDATED SCRAP COLLECTION LOGIC ---
         scrap_hits = pygame.sprite.spritecollide(self.player, self.scrap_manager.scrap_group, True)
         for scrap in scrap_hits:
             self.score += scrap.value
+            # Base scrap currency gain
             self.player.scrap += 5 
             self.player.weight = min(self.player.max_weight, self.player.weight + scrap.weight_value)
             
+            # Type-specific logic
             if scrap.scrap_type == "red_core":
                 self.companion_manager.summon("RED")
             elif scrap.scrap_type == "tine_soul":
                 self.companion_manager.summon("TINE")
+            elif scrap.scrap_type == "gold_oracle": # Added Cici Summon!
+                self.companion_manager.summon("CICI")
             elif scrap.scrap_type == "missile":
                 self.player.missiles = min(self.player.max_missiles, self.player.missiles + 5)
             elif scrap.scrap_type == "bomb":
                 self.player.bombs = min(self.player.max_bombs, self.player.bombs + 2)
 
     def draw(self, screen):
-        if self.state == "MENU": self.menu.draw(); return 
-        if self.state == "WORKSHOP": self.workshop.draw(); return
+        if self.state == "MENU": 
+            self.menu.draw()
+            return 
+        
+        if self.state == "STORY":
+            if self.intro_cutscene:
+                self.intro_cutscene.draw()
+            return
+
+        if self.state == "WORKSHOP": 
+            self.workshop.draw()
+            return
 
         self.parallax.draw(screen)
         self.ground.draw(screen)      
