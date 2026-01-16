@@ -1,11 +1,20 @@
 import pygame
 import sys
-from settings import*
+from settings import *
 from core.input_handler import InputHandler
 
 class Engine:
     def __init__(self):
+        # --- FIX: AUDIO LATENCY & QUALITY ---
+        # 44100Hz frequency, 16-bit signed sound, 2 channels (stereo), 512 buffer size
+        # A smaller buffer (512 or 256) removes the delay in sound effects
+        pygame.mixer.pre_init(44100, -16, 2, 512) 
+        
         pygame.init()
+        
+        # Ensure we have enough mixing channels for machine gun + explosions + music
+        pygame.mixer.set_num_channels(32)
+        
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Zethia: Scrap-Jet Skyways")
         self.clock = pygame.time.Clock()
@@ -14,15 +23,9 @@ class Engine:
         # Core Systems
         self.input_handler = InputHandler()
         
-        # The 'Game' instance will be attached here later 
-        # to separate engine logic from game content
         self.game_state = None 
 
     def run(self, game_instance):
-        """
-        The Master Loop.
-        Pass in your Main Game class here.
-        """
         self.game_state = game_instance
         
         while self.running:
@@ -34,14 +37,12 @@ class Engine:
             
             # 3. Update Logic
             if self.game_state:
-                # Pass inputs down to the game state
                 flight_input = self.input_handler.get_flight_input()
                 combat_input = self.input_handler.get_combat_input()
-                
                 self.game_state.update(dt, flight_input, combat_input)
             
             # 4. Rendering
-            self.screen.fill(SKY_BLUE) # Clear screen
+            self.screen.fill(SKY_BLUE) 
             if self.game_state:
                 self.game_state.draw(self.screen)
             
@@ -54,6 +55,5 @@ class Engine:
                 pygame.quit()
                 sys.exit()
             
-            # Handle Menu-specific events or state swaps here
             if self.game_state:
                 self.game_state.handle_event(event)

@@ -3,13 +3,13 @@ import random
 import math
 from settings import WIDTH, HEIGHT, GROUND_LINE, SKY_BLUE
 
-# --- New Time Constants ---
+# --- Constants ---
 SUNSET_ORANGE = (255, 110, 60)
 NIGHT_NAVY = (15, 15, 35)
 MIDNIGHT_PURPLE = (30, 20, 50)
 LUMEN_GOLD = (255, 215, 0)
 WHITE = (255, 255, 255)
-BOSS_SKY_COLOR = (45, 10, 50) # Dark Corrupted Purple
+BOSS_SKY_COLOR = (45, 10, 50) 
 
 class Sun:
     def __init__(self):
@@ -45,10 +45,8 @@ class Star:
     def draw(self, screen, alpha):
         current_alpha = max(0, min(255, int(alpha)))
         if current_alpha <= 0: return
-
         flicker_val = (0.4 + 0.6 * math.sin(pygame.time.get_ticks() * 0.003 + self.flicker))
         s_alpha = int(max(0, min(255, current_alpha * flicker_val)))
-        
         star_surf = pygame.Surface((self.size*2, self.size*2), pygame.SRCALPHA)
         pygame.draw.circle(star_surf, (255, 255, 255, s_alpha), (self.size, self.size), self.size)
         screen.blit(star_surf, (self.x, self.y))
@@ -93,12 +91,12 @@ class Cloud(pygame.sprite.Sprite):
         super().__init__()
         self.image = image.copy()
         self.width = self.image.get_width()
-        self.x = random.randint(0, WIDTH) if start_on_screen else WIDTH + random.randint(50, 300)
-        self.y = random.randint(20, HEIGHT // 2 - 50)
-        self.speed = random.uniform(20, 50)
+        self.x = random.randint(0, WIDTH) if start_on_screen else WIDTH + random.randint(100, 500)
+        self.y = random.randint(20, HEIGHT // 2 - 80)
+        self.speed = random.uniform(15, 35) # Slightly slower clouds
         self.alpha = 180 if start_on_screen else 0
         self.image.set_alpha(self.alpha)
-        self.fade_speed = random.randint(80, 150)
+        self.fade_speed = random.randint(40, 80)
     def update(self, dt):
         self.x -= self.speed * dt
         if self.alpha < 180:
@@ -108,20 +106,32 @@ class Cloud(pygame.sprite.Sprite):
         screen.blit(self.image, (self.x, self.y))
 
 class ParallaxLayer:
-    def __init__(self, image_path, internal_speed, y_pos=0, stretch_to_bottom=False):
+    def __init__(self, image_path, internal_speed, y_pos=0, stretch_to_bottom=False, scale=1.0, alpha=255):
         original_surf = pygame.image.load(image_path).convert_alpha()
+        w, h = original_surf.get_size()
+        
         if stretch_to_bottom:
-            fill_height = HEIGHT - y_pos
-            self.image = pygame.transform.scale(original_surf, (original_surf.get_width(), fill_height))
+            # FIX: Maintain aspect ratio based on the height we need to fill
+            target_h = HEIGHT - y_pos
+            ratio = target_h / h
+            scaled_w = int(w * ratio * scale)
+            scaled_h = target_h
         else:
-            self.image = original_surf
+            scaled_w = int(w * scale)
+            scaled_h = int(h * scale)
+            
+        self.image = pygame.transform.scale(original_surf, (scaled_w, scaled_h))
+        self.image.set_alpha(alpha) 
+        
         self.width = self.image.get_width()
         self.y_pos = y_pos
         self.internal_speed = internal_speed
         self.x = 0
+        
     def update(self, dt):
         self.x -= self.internal_speed * dt
         if self.x <= -self.width: self.x += self.width
+        
     def draw(self, screen):
         tiles_needed = (WIDTH // self.width) + 2
         for i in range(tiles_needed):
@@ -146,28 +156,33 @@ class ParallaxBackground:
             
         self.active_clouds = []
         self.spawn_timer = 0
-        for _ in range(5):
+        # Reduced initial clouds
+        for _ in range(3):
             self.active_clouds.append(Cloud(self.cloud_img, start_on_screen=True))
 
-        self.mountains = ParallaxLayer("assets/backgrounds/mountain.png", 50, GROUND_LINE - 280, True)
-        self.ground_layer = ParallaxLayer("assets/backgrounds/ground.jpeg", 200, GROUND_LINE, True)
+        # --- Layers ---
+        # Far Mountains: Pushed higher up (y_pos) and scaled more for "Tall" look
+        self.far_mountains = ParallaxLayer("assets/backgrounds/mountain.png", 20, GROUND_LINE - 450, True, scale=1.5, alpha=80)
+        
+        # Near Mountains: Scaled up to 1.3 for more presence
+        self.mountains = ParallaxLayer("assets/backgrounds/mountain.png", 50, GROUND_LINE - 320, True, scale=1.2)
+        
+        # Ground: Now uses aspect-ratio scaling so it's not stretched
+        self.ground_layer = ParallaxLayer("assets/backgrounds/ground.png", 200, GROUND_LINE, True, scale=1.0)
 
     def enter_boss_mode(self):
         self.target_boss_factor = 1.0
 
     def exit_boss_mode(self):
-        """Forces an immediate reset to prevent purple sky hanging around."""
         self.target_boss_factor = 0.0
         self.boss_factor = 0.0 
 
     def update(self, player_distance, dt):
-        # 1. Update Boss Interpolation
         if self.boss_factor < self.target_boss_factor:
             self.boss_factor = min(self.target_boss_factor, self.boss_factor + 2.0 * dt)
         elif self.boss_factor > self.target_boss_factor:
-            self.boss_factor = max(self.target_boss_factor, self.boss_factor - 4.0 * dt) # Faster fade out
+            self.boss_factor = max(self.target_boss_factor, self.boss_factor - 4.0 * dt)
 
-        # 2. Cycle Math
         time_angle = (player_distance / 40000.0) * (2 * math.pi)
         normalized_angle = time_angle % (2 * math.pi)
         self.sun.update(normalized_angle)
@@ -186,26 +201,28 @@ class ParallaxBackground:
             base_b = SUNSET_ORANGE[2] * (1 - night_intensity) + NIGHT_NAVY[2] * night_intensity
             self.star_alpha = min(255, self.star_alpha + 100 * dt)
 
-        # 3. Boss Blending
         b_f = max(0.0, min(1.0, self.boss_factor))
         final_r = base_r * (1 - b_f) + BOSS_SKY_COLOR[0] * b_f
         final_g = base_g * (1 - b_f) + BOSS_SKY_COLOR[1] * b_f
         final_b = base_b * (1 - b_f) + BOSS_SKY_COLOR[2] * b_f
-
         self.bg_color = [int(final_r), int(final_g), int(final_b)]
 
-        # --- Objects ---
         for s in self.wind_streaks: s.update(dt)
         for b in self.birds: b.update(dt)
+        
+        # REDUCED SPAWN: Timer increased to 6.0 seconds for fewer clouds
         self.spawn_timer += dt
-        if self.spawn_timer > 3.0:
-            self.active_clouds.append(Cloud(self.cloud_img))
+        if self.spawn_timer > 6.0:
+            if len(self.active_clouds) < 6: # Cap the number of clouds
+                self.active_clouds.append(Cloud(self.cloud_img))
             self.spawn_timer = 0
+            
         for cloud in self.active_clouds[:]:
             cloud.update(dt)
             if cloud.x < -cloud.width: self.active_clouds.remove(cloud)
 
         speed_mult = 1.0 + (b_f * 0.5)
+        self.far_mountains.update(dt * speed_mult)
         self.mountains.update(dt * speed_mult)
         self.ground_layer.update(dt * speed_mult)
 
@@ -220,6 +237,8 @@ class ParallaxBackground:
         if self.boss_factor < 0.8:
             self.sun.draw(screen, safe_star_alpha > 120) 
         
+        # DRAW ORDER: Far -> Near
+        self.far_mountains.draw(screen)
         for cloud in self.active_clouds: cloud.draw(screen)
         for b in self.birds: b.draw(screen)
         

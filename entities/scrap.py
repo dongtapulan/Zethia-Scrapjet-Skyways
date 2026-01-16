@@ -108,6 +108,16 @@ class ScrapManager:
         self.spawn_timer = 0
         self.next_spawn_time = random.uniform(2.5, 4.5) 
         
+        # --- SFX LOADING ---
+        try:
+            self.collect_sfx = pygame.mixer.Sound("assets/sfx/scrap_pickup.mp3")
+            self.collect_sfx.set_volume(0.2)
+            self.special_sfx = pygame.mixer.Sound("assets/sfx/special_pickup.mp3") # For cores/batteries
+            self.special_sfx.set_volume(0.4)
+        except:
+            self.collect_sfx = None
+            self.special_sfx = None
+
         path = "assets/sprites/scraps/"
         try:
             self.images = {
@@ -121,34 +131,36 @@ class ScrapManager:
                 'gold_oracle': pygame.image.load(path + "goldencore.png").convert_alpha()
             }
         except:
-            # Fallback surfaces if images aren't found
             self.images = {k: pygame.Surface((30, 30)) for k in ['bolt', 'gear', 'battery', 'missile', 'bomb', 'red_core', 'tine_soul', 'gold_oracle']}
             self.images['red_core'].fill((255, 0, 0))
             self.images['tine_soul'].fill((200, 0, 255))
             self.images['gold_oracle'].fill((255, 215, 0))
 
+    def play_pickup_sound(self, scrap_type):
+        """Plays the appropriate sound based on what was collected."""
+        if scrap_type in ["red_core", "tine_soul", "gold_oracle", "battery"]:
+            if self.special_sfx: self.special_sfx.play()
+        else:
+            if self.collect_sfx: self.collect_sfx.play()
+
     def spawn_pattern(self):
         roll = random.random()
         start_y = random.randint(100, GROUND_LINE - 200)
         
-        # 1. Companion Drop (20% chance for ANY companion core)
         if roll < 0.20:
             sub_roll = random.random()
-            if sub_roll < 0.57: # 5% chance for Cici (Rare)
+            if sub_roll < 0.55: # Lowered to 10% of the 20% for Cici
                 choice = "gold_oracle"
-            elif sub_roll < 0.57: # Balanced between Red and Tine
+            elif sub_roll < 0.60: 
                 choice = "red_core"
             else:
                 choice = "tine_soul"
-                
             self.scrap_group.add(Scrap(WIDTH + 100, start_y, choice, self.images))
 
-        # 2. Utility Items (35% chance)
         elif roll < 0.55:
             choice = random.choice(["bomb", "missile", "battery", "gear"])
             self.scrap_group.add(Scrap(WIDTH + 50, start_y, choice, self.images))
             
-        # 3. Standard Bolt Swarms (Remaining 45%)
         else:
             count = random.randint(6, 12)
             for i in range(count):
@@ -176,13 +188,12 @@ class ScrapManager:
                 
                 glow_surf = pygame.Surface((int(glow_size*2), int(glow_size*2)), pygame.SRCALPHA)
                 
-                # Dynamic Glow Colors
                 if scrap.scrap_type == "red_core":
                     color = (255, 40, 40, 90)
                 elif scrap.scrap_type == "tine_soul":
                     color = (160, 40, 255, 90)
-                else: # Cici's Oracle Glow
-                    color = (255, 255, 100, 110) # Brighter Yellow/Gold
+                else: 
+                    color = (255, 255, 100, 110) 
                 
                 pygame.draw.circle(glow_surf, color, (int(glow_size), int(glow_size)), int(glow_size))
                 pygame.draw.circle(glow_surf, (255, 255, 255, 150), (int(glow_size), int(glow_size)), int(glow_size/2.5))

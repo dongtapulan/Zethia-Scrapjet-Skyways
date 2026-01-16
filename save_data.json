@@ -1,10 +1,14 @@
 {
-    "bolts": 70533,
+    "bolts": 103325,
     "stats": {
-        "Engine Cooling": 4,
-        "Magnetic Hull": 2,
-        "Hull Integrity": 2,
-        "Ammo Feed": 4
+        "Engine Cooling": 5,
+        "Magnetic Hull": 5,
+        "Hull Integrity": 5,
+        "Ammo Feed": 5,
+        "missiles": 0,
+        "lightning_charges": 0,
+        "laser_fuel": 0,
+        "bombs": 0
     },
     "overclocks": []
 }

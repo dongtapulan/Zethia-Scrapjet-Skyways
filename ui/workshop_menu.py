@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 from settings import *
 
 class DustParticle:
@@ -39,24 +40,27 @@ class WorkshopMenu:
             self.bg = pygame.transform.scale(self.bg, (WIDTH, HEIGHT))
         except:
             self.bg = pygame.Surface((WIDTH, HEIGHT))
-            self.bg.fill((30, 20, 20))
+            self.bg.fill((20, 15, 10))
 
-        self.font_main = pygame.font.SysFont("Impact", 42)
-        self.font_ui = pygame.font.SysFont("Impact", 28)
-        self.font_small = pygame.font.SysFont("Arial", 18)
+        # Modern UI Fonts
+        self.font_main = pygame.font.SysFont("Impact", 50)
+        self.font_ui = pygame.font.SysFont("Impact", 24)
+        self.font_small = pygame.font.SysFont("Arial", 16, bold=True)
         
         self.particles = [DustParticle() for _ in range(40)]
         self.selected_index = 0
+        
+        # This dynamically pulls the keys from UpgradeManager (missiles, lightning_charges, etc.)
         self.stat_names = list(self.manager.stats.keys())
 
-        # --- FEEDBACK SYSTEM ---
         self.feedback_msg = ""
         self.feedback_timer = 0
         self.feedback_color = LUMEN_GOLD
+        self.glow_anim = 0
 
     def show_feedback(self, message, color=LUMEN_GOLD):
         self.feedback_msg = message
-        self.feedback_timer = 1.5  # Show for 1.5 seconds
+        self.feedback_timer = 2.0
         self.feedback_color = color
 
     def handle_input(self, event):
@@ -67,19 +71,21 @@ class WorkshopMenu:
                 self.selected_index = (self.selected_index + 1) % len(self.stat_names)
             elif event.key == pygame.K_RETURN:
                 stat = self.stat_names[self.selected_index]
-                # Check if purchase is successful
+                
+                # Check for enough bolts before calling manager
+                cost = self.manager.get_upgrade_cost(stat)
+                
                 success = self.manager.attempt_upgrade(stat, None)
                 
                 if success:
-                    self.show_feedback(f"UPGRADED: {stat}!", (50, 255, 50))
-                else:
-                    # Check why it failed for better feedback
-                    curr_level = self.manager.stats[stat]["level"]
-                    max_level = self.manager.stats[stat]["max"]
-                    if curr_level >= max_level:
-                        self.show_feedback("MAX LEVEL REACHED", (200, 50, 50))
+                    # Weapon categories check
+                    is_weapon = any(k in stat for k in ["charges", "fuel", "missile", "bomb"])
+                    if is_weapon:
+                        self.show_feedback(f"STOCK ADDED: {stat.replace('_', ' ').upper()}", (100, 220, 255))
                     else:
-                        self.show_feedback("NOT ENOUGH BOLTS", (200, 50, 50))
+                        self.show_feedback(f"SYSTEM UPGRADED: {stat.upper()}", (50, 255, 100))
+                else:
+                    self.show_feedback("INSUFFICIENT DATA/BOLTS", (255, 80, 80))
                 
                 return stat 
             elif event.key == pygame.K_ESCAPE:
@@ -89,63 +95,91 @@ class WorkshopMenu:
     def update(self, dt):
         for p in self.particles:
             p.update(dt)
-        
-        # Update Feedback Timer
         if self.feedback_timer > 0:
             self.feedback_timer -= dt
+        self.glow_anim += 5 * dt
 
     def draw(self):
+        # Draw base background with dark tint
         self.screen.blit(self.bg, (0, 0))
+        dark_overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        dark_overlay.fill((0, 0, 0, 160))
+        self.screen.blit(dark_overlay, (0, 0))
         
         for p in self.particles:
             p.draw(self.screen)
 
-        # Header
-        header_text = self.font_main.render("SCRAP WORKSHOP", True, LUMEN_GOLD)
-        self.screen.blit(header_text, (50, 40))
+        # Top Bar
+        pygame.draw.rect(self.screen, (20, 20, 25), (0, 0, WIDTH, 100))
+        pygame.draw.line(self.screen, LUMEN_GOLD, (0, 100), (WIDTH, 100), 3)
         
-        bolt_text = self.font_ui.render(f"BOLTS: {self.manager.total_bolts}", True, WHITE)
-        self.screen.blit(bolt_text, (WIDTH - 250, 45))
+        header = self.font_main.render("WEI'S CUSTOMS", True, LUMEN_GOLD)
+        self.screen.blit(header, (40, 25))
+        
+        bolts = self.font_ui.render(f"AVAIL. SCRAP: {self.manager.total_bolts} B", True, WHITE)
+        self.screen.blit(bolts, (WIDTH - 300, 35))
 
-        # --- DRAW FEEDBACK MESSAGE ---
+        # Feedback Notification
         if self.feedback_timer > 0:
-            # Subtle fade out based on timer
-            alpha = min(255, int(self.feedback_timer * 255))
-            f_text = self.font_ui.render(self.feedback_msg, True, self.feedback_color)
-            f_text.set_alpha(alpha)
-            # Position it right under the bolt count
-            self.screen.blit(f_text, (WIDTH - 250, 85))
+            f_surf = self.font_ui.render(self.feedback_msg, True, self.feedback_color)
+            f_rect = f_surf.get_rect(center=(WIDTH//2, 130))
+            self.screen.blit(f_surf, f_rect)
 
-        # Upgrade Containers
-        start_y = 150
+        # Drawing Upgrade Cards
         for i, name in enumerate(self.stat_names):
-            stat_data = self.manager.stats[name]
-            cost = self.manager.get_upgrade_cost(name)
-            is_selected = i == self.selected_index
+            data = self.manager.stats[name]
+            is_sel = i == self.selected_index
             
-            box_rect = pygame.Rect(50, start_y + (i * 90), 500, 80)
+            # Layout logic: Split into two columns
+            col = i // 4 
+            row = i % 4
+            x = 60 + (col * 480)
+            y = 180 + (row * 110)
             
-            bg_color = (60, 60, 70, 200) if not is_selected else (100, 80, 40, 230)
-            border_color = LUMEN_GOLD if is_selected else (100, 100, 100)
+            card_rect = pygame.Rect(x, y, 440, 90)
             
-            pygame.draw.rect(self.screen, (20, 20, 20), (box_rect.x+4, box_rect.y+4, box_rect.width, box_rect.height), border_radius=10)
-            pygame.draw.rect(self.screen, bg_color, box_rect, border_radius=10)
-            pygame.draw.rect(self.screen, border_color, box_rect, 3, border_radius=10)
+            # Selection Glow
+            if is_sel:
+                pulse = math.sin(self.glow_anim) * 4
+                pygame.draw.rect(self.screen, LUMEN_GOLD, card_rect.inflate(pulse, pulse), 0, 12)
+            
+            # Card Body
+            bg_color = (45, 45, 55) if not is_sel else (70, 65, 50)
+            pygame.draw.rect(self.screen, bg_color, card_rect, 0, 10)
+            pygame.draw.rect(self.screen, LUMEN_GOLD if is_sel else (100, 100, 110), card_rect, 2, 10)
 
-            name_label = self.font_ui.render(name, True, WHITE)
-            self.screen.blit(name_label, (box_rect.x + 20, box_rect.y + 15))
-            
-            for level_dot in range(stat_data["max"]):
-                dot_color = LUMEN_GOLD if level_dot < stat_data["level"] else (50, 50, 50)
-                pygame.draw.circle(self.screen, dot_color, (box_rect.x + 25 + (level_dot * 25), box_rect.y + 55), 6)
+            # Icon/Type Decorator
+            is_weapon = any(k in name for k in ["charges", "fuel", "missile", "bomb"])
+            icon_color = (100, 200, 255) if is_weapon else (150, 255, 150)
+            pygame.draw.rect(self.screen, icon_color, (x+15, y+15, 10, 60), border_radius=5)
 
-            if stat_data["level"] < stat_data["max"]:
-                can_afford = self.manager.total_bolts >= cost
-                cost_text = self.font_ui.render(f"{cost} B", True, LUMEN_GOLD if can_afford else (200, 50, 50))
-                self.screen.blit(cost_text, (box_rect.right - 100, box_rect.y + 25))
+            # Text Rendering
+            display_name = name.replace("_", " ").upper()
+            label = self.font_ui.render(display_name, True, WHITE)
+            self.screen.blit(label, (x + 40, y + 15))
+            
+            # Cost or Maxed
+            current_cost = self.manager.get_upgrade_cost(name)
+            if data["level"] < data.get("max", 10):
+                cost_color = WHITE if self.manager.total_bolts >= current_cost else (255, 100, 100)
+                cost_label = self.font_ui.render(f"{current_cost} B", True, cost_color)
+                self.screen.blit(cost_label, (card_rect.right - 90, y + 15))
             else:
-                max_text = self.font_ui.render("MAXED", True, (50, 255, 50))
-                self.screen.blit(max_text, (box_rect.right - 120, box_rect.y + 25))
+                max_label = self.font_ui.render("MAX", True, (100, 255, 100))
+                self.screen.blit(max_label, (card_rect.right - 80, y + 15))
 
-        hint = self.font_small.render("[UP/DOWN] Select   [ENTER] Buy   [ESC] Return to Sky", True, (180, 180, 180))
-        self.screen.blit(hint, (50, HEIGHT - 50))
+            # Progress Bar or Ammo Count (THE FIX IS HERE)
+            if not is_weapon:
+                bar_bg = pygame.Rect(x + 40, y + 55, 300, 15)
+                pygame.draw.rect(self.screen, (20, 20, 25), bar_bg, border_radius=5)
+                progress = data["level"] / data["max"]
+                pygame.draw.rect(self.screen, (150, 255, 150), (x+40, y+55, 300 * progress, 15), border_radius=5)
+            else:
+                # Show specific count for weapons using 'level' key
+                ammo_text = self.font_small.render(f"STARTING STOCK: {data['level']}", True, (100, 200, 255))
+                self.screen.blit(ammo_text, (x + 45, y + 53))
+
+        # Footer
+        footer_text = "[UP/DOWN] BROWSE   [ENTER] PURCHASE   [ESC] LAUNCH"
+        footer_surf = self.font_small.render(footer_text, True, (150, 150, 150))
+        self.screen.blit(footer_surf, (WIDTH // 2 - footer_surf.get_rect().width // 2, HEIGHT - 40))

@@ -1,7 +1,7 @@
 import pygame
 import random
 import math
-from settings import WIDTH, HEIGHT
+from settings import *
 from entities.projectiles import EnemyBullet, GloomLaser
 
 class GloomParticle:

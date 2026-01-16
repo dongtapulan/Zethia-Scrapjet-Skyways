@@ -13,9 +13,9 @@ class Particle:
             self.color = [255, random.randint(100, 200), 50]
             self.life = random.uniform(0.5, 0.8)
             self.base_size = random.randint(4, 8)
-        elif p_type == "shield_spark": # NEW: Sparkles for Tine's shield
+        elif p_type == "shield_spark":
             self.vel = pygame.Vector2(random.uniform(-50, -20), random.uniform(-30, 30))
-            self.color = [150, 100, 255] # Indigo
+            self.color = [150, 100, 255] 
             self.life = 0.6
             self.base_size = random.randint(2, 4)
         else: # Smoke
@@ -37,7 +37,7 @@ class Particle:
     def draw(self, screen):
         if self.life > 0:
             size = int(self.life * self.base_size)
-            if self.p_type == "fire" or self.p_type == "shield_spark":
+            if self.p_type in ["fire", "shield_spark"]:
                 surf = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
                 alpha = 150 if self.p_type == "fire" else 200
                 pygame.draw.circle(surf, (*self.color, alpha), (size, size), size)
@@ -50,23 +50,41 @@ class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
         
-        # 1. Assets & SFX
+        # 1. Assets
         try:
             self.frame_open = pygame.image.load("assets/sprites/huey_plane1.png").convert_alpha()
             self.frame_blink = pygame.image.load("assets/sprites/huey_plane2.png").convert_alpha()
             self.image_crash = pygame.image.load("assets/sprites/huey_planecrash.png").convert_alpha()
         except:
-            self.frame_open = pygame.Surface((50, 30))
-            self.frame_open.fill((200, 200, 200))
+            self.frame_open = pygame.Surface((50, 30)); self.frame_open.fill((200, 200, 200))
             self.frame_blink = self.frame_open.copy()
-            self.image_crash = self.frame_open.copy()
-            self.image_crash.fill((100, 100, 100))
+            self.image_crash = self.frame_open.copy(); self.image_crash.fill((100, 100, 100))
     
+        # --- AUDIO SYSTEM ---
         try:
             self.sfx_explosion = pygame.mixer.Sound("assets/sfx/explosion.wav")
-            self.sfx_explosion.set_volume(0.3)
+            self.sfx_engine = pygame.mixer.Sound("assets/sfx/engine_loop.mp3")
+            self.sfx_stall = pygame.mixer.Sound("assets/sfx/engine_stall.mp3") 
+            
+            # New Weapon SFX
+            self.sfx_lightning = pygame.mixer.Sound("assets/sfx/tine_lightning.mp3")
+            self.sfx_laser_loop = pygame.mixer.Sound("assets/sfx/Red_Laser.mp3")
+            
+            # Volume adjustments
+            self.sfx_lightning.set_volume(0.6)
+            self.sfx_laser_loop.set_volume(0.4)
+
+            # Dedicated Channels
+            self.engine_channel = pygame.mixer.find_channel()
+            self.laser_channel = pygame.mixer.find_channel() # Continuous channel for Red's Laser
+
+            if self.engine_channel:
+                self.engine_channel.play(self.sfx_engine, loops=-1)
+                self.engine_channel.set_volume(0.1)
         except:
-            self.sfx_explosion = None
+            self.sfx_explosion = self.sfx_engine = self.sfx_stall = None
+            self.sfx_lightning = self.sfx_laser_loop = None
+            self.engine_channel = self.laser_channel = None
 
         self.base_image = self.frame_open
         self.image = self.base_image
@@ -79,6 +97,7 @@ class Player(pygame.sprite.Sprite):
         self.heat_system = None
         self.particles = [] 
         self.smoke_timer = 0
+        self.magnet_pulse = 0 
         
         # 3. Stats & State
         self.health = PLAYER_HEALTH
@@ -92,31 +111,48 @@ class Player(pygame.sprite.Sprite):
         self.is_skimming = False
         self.leeches = 0
         
-        # Secondary Weapons
+        # Weapons
         self.missiles = 0
         self.max_missiles = 15
         self.bombs = 0
         self.max_bombs = 5
+        self.lightning_charges = 0
+        self.max_lightning_charges = 3
+        self.laser_fuel = 0.0
+        self.max_laser_fuel = 100.0
         
-        # 4. Death & Protection Sequence
+        # 4. State Management
         self.death_timer = 0
         self.has_exploded = False
-        
-        # Damage Protection
-        self.invincible = False        # Standard i-frames after hit
-        self.is_invincible = False     # COMPANION SHIELD (Tine)
+        self.invincible = False
+        self.is_invincible = False
         self.invincible_timer = 0
         self.invincible_duration = 1.5 
 
-        # 5. Animation State
+        # 5. Animation
         self.blink_timer = 0
         self.is_blinking = False
         self.next_blink_time = random.randint(3000, 6000)
         self.rotation = 0
         self.stall_timer = 0
 
+    def play_lightning_sfx(self):
+        """Called by main.py when Q is pressed."""
+        if self.sfx_lightning:
+            self.sfx_lightning.play()
+
+    def update_laser_audio(self, is_firing):
+        """Manages the looping laser sound."""
+        if not self.laser_channel or not self.sfx_laser_loop:
+            return
+            
+        if is_firing and self.is_alive and self.laser_fuel > 0:
+            if not self.laser_channel.get_busy():
+                self.laser_channel.play(self.sfx_laser_loop, loops=-1)
+        else:
+            self.laser_channel.stop()
+
     def take_damage(self, amount, play_sound=True):
-        # NEW: Check both standard i-frames AND Tine's magical shield
         if not self.is_alive or self.invincible or self.is_invincible:
             return False
 
@@ -128,51 +164,38 @@ class Player(pygame.sprite.Sprite):
             self.health = 0
             self.is_alive = False
             self.death_timer = pygame.time.get_ticks()
+            if self.engine_channel: self.engine_channel.stop()
+            if self.laser_channel: self.laser_channel.stop()
         else:
             self.invincible = True
             self.invincible_timer = pygame.time.get_ticks()
         return True 
 
-    def emit_detailed_particles(self, dt):
-        self.smoke_timer += dt
-        current_heat = self.heat_system.heat if self.heat_system else self.heat
-        heat_ratio = current_heat / HEAT_MAX
-        
-        spawn_rate = 0.04
-        if not self.is_alive: spawn_rate = 0.01 
-        
-        if self.smoke_timer > spawn_rate:
-            ex_x, ex_y = self.rect.center
-            
-            # Tine's Shield Trail
-            if self.is_invincible:
-                self.particles.append(Particle(ex_x - 20, ex_y, "shield_spark"))
-            
-            # Standard Smoke/Fire
-            self.particles.append(Particle(ex_x, ex_y, "smoke", heat_ratio))
-            if heat_ratio > 0.8 or not self.is_alive:
-                self.particles.append(Particle(ex_x, ex_y, "fire"))
-                
-            self.smoke_timer = 0
-
     def update(self, dt):
         if self.heat_system:
             self.heat = self.heat_system.heat
+            if self.heat_system.is_stalled and not self.is_stalled:
+                if self.sfx_stall: self.sfx_stall.play()
             self.is_stalled = self.heat_system.is_stalled
 
-        # Standard I-Frame cooldown
         if self.invincible:
             if pygame.time.get_ticks() - self.invincible_timer > self.invincible_duration * 1000:
                 self.invincible = False
             
         self.animate()
         self.apply_tilt()
+        self.update_engine_audio()
+        
+        # Laser audio logic is checked every frame
+        keys = pygame.key.get_pressed()
+        self.update_laser_audio(keys[pygame.K_e])
+
         self.is_skimming = self.rect.bottom >= GROUND_LINE - 5
+        self.magnet_pulse += 5 * dt
         
         if not self.is_alive:
             self.rect.y += (GRAVITY * 0.8) * dt
             self.rect.x += math.sin(pygame.time.get_ticks() * 0.01) * 2
-            self.weight = max(0, self.weight - 10 * dt)
             
             time_since_death = (pygame.time.get_ticks() - self.death_timer) / 1000
             if (time_since_death > 2.0 or self.rect.bottom >= HEIGHT) and not self.has_exploded:
@@ -187,6 +210,17 @@ class Player(pygame.sprite.Sprite):
             p.update(dt)
             if p.life <= 0: self.particles.remove(p)
 
+    def update_engine_audio(self):
+        if not self.is_alive or not self.engine_channel:
+            return
+        vol = 0.1
+        strain = abs(self.physics.velocity_y) / 500
+        vol += strain * 0.1
+        heat_ratio = self.heat / HEAT_MAX
+        if heat_ratio > 0.7:
+            vol += 0.1 + (math.sin(pygame.time.get_ticks() * 0.05) * 0.05)
+        self.engine_channel.set_volume(min(0.4, vol))
+
     def trigger_final_explosion(self):
         self.has_exploded = True
         if self.sfx_explosion:
@@ -196,6 +230,20 @@ class Player(pygame.sprite.Sprite):
             self.particles.append(Particle(ex_x, ex_y, "fire"))
             self.particles.append(Particle(ex_x, ex_y, "smoke", 1.0))
 
+    def emit_detailed_particles(self, dt):
+        self.smoke_timer += dt
+        current_heat = self.heat_system.heat if self.heat_system else self.heat
+        heat_ratio = current_heat / HEAT_MAX
+        spawn_rate = 0.04
+        if not self.is_alive: spawn_rate = 0.01 
+        
+        if self.smoke_timer > spawn_rate:
+            ex_x, ex_y = self.rect.center
+            self.particles.append(Particle(ex_x, ex_y, "smoke", heat_ratio))
+            if heat_ratio > 0.8 or not self.is_alive:
+                self.particles.append(Particle(ex_x, ex_y, "fire"))
+            self.smoke_timer = 0
+
     def handle_recovery(self, dt):
         if not self.heat_system and self.is_stalled:
             if pygame.time.get_ticks() - self.stall_timer > OVERHEAT_STALL_TIME * 1000:
@@ -203,10 +251,8 @@ class Player(pygame.sprite.Sprite):
 
     def handle_input(self, flight_input, dt):
         if not self.is_alive: return
-
         thrust_active = False
         is_holding = False
-
         if not self.is_stalled:
             if flight_input["thrust"]:
                 thrust_active = True
@@ -220,7 +266,6 @@ class Player(pygame.sprite.Sprite):
         
         self.physics.is_stalled = self.is_stalled
         self.physics.add_leech_weight(self.leeches + self.weight) 
-        
         self.rect.y = self.physics.apply_forces(
             self.rect.y, thrust_active, is_holding, dt, self.rect.height
         )
@@ -231,6 +276,7 @@ class Player(pygame.sprite.Sprite):
         if self.heat >= HEAT_MAX:
             self.heat = HEAT_MAX
             self.is_stalled = True
+            if self.sfx_stall: self.sfx_stall.play()
             self.stall_timer = pygame.time.get_ticks()
 
     def animate(self):
@@ -238,7 +284,6 @@ class Player(pygame.sprite.Sprite):
         if not self.is_alive:
             self.base_image = self.image_crash
             return
-
         if self.is_stalled:
             self.base_image = self.frame_blink
         elif not self.is_blinking:
@@ -259,19 +304,18 @@ class Player(pygame.sprite.Sprite):
         else:
             target_rotation = self.physics.velocity_y * -2.5
             target_rotation = max(-25, min(15, target_rotation))
-            
         self.rotation += (target_rotation - self.rotation) * 0.1
         self.image = pygame.transform.rotate(self.base_image, self.rotation)
         self.rect = self.image.get_rect(center=self.rect.center)
         self.mask = pygame.mask.from_surface(self.image)
 
     def draw(self, screen):
+        if self.is_alive:
+            pulse_val = (math.sin(self.magnet_pulse) + 1) * 5
+            pygame.draw.circle(screen, (0, 200, 255, 30), self.rect.center, 150 + int(pulse_val), 1)
         for p in self.particles:
             p.draw(screen)
-            
-        # Standard flickering for i-frames
         if self.invincible and (pygame.time.get_ticks() // 100) % 2 == 0:
             return
-
         if not self.has_exploded:
             screen.blit(self.image, self.rect)
