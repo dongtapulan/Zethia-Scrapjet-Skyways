@@ -93,7 +93,7 @@ class Cloud(pygame.sprite.Sprite):
         self.width = self.image.get_width()
         self.x = random.randint(0, WIDTH) if start_on_screen else WIDTH + random.randint(100, 500)
         self.y = random.randint(20, HEIGHT // 2 - 80)
-        self.speed = random.uniform(15, 35) # Slightly slower clouds
+        self.speed = random.uniform(15, 35) 
         self.alpha = 180 if start_on_screen else 0
         self.image.set_alpha(self.alpha)
         self.fade_speed = random.randint(40, 80)
@@ -111,7 +111,6 @@ class ParallaxLayer:
         w, h = original_surf.get_size()
         
         if stretch_to_bottom:
-            # FIX: Maintain aspect ratio based on the height we need to fill
             target_h = HEIGHT - y_pos
             ratio = target_h / h
             scaled_w = int(w * ratio * scale)
@@ -156,18 +155,17 @@ class ParallaxBackground:
             
         self.active_clouds = []
         self.spawn_timer = 0
-        # Reduced initial clouds
         for _ in range(3):
             self.active_clouds.append(Cloud(self.cloud_img, start_on_screen=True))
 
         # --- Layers ---
-        # Far Mountains: Pushed higher up (y_pos) and scaled more for "Tall" look
         self.far_mountains = ParallaxLayer("assets/backgrounds/mountain.png", 20, GROUND_LINE - 450, True, scale=1.5, alpha=80)
         
-        # Near Mountains: Scaled up to 1.3 for more presence
+        # New: Parallax Fog layer (drawn between far and near mountains)
+        self.fog_x = 0
+        self.fog_speed = 35
+
         self.mountains = ParallaxLayer("assets/backgrounds/mountain.png", 50, GROUND_LINE - 320, True, scale=1.2)
-        
-        # Ground: Now uses aspect-ratio scaling so it's not stretched
         self.ground_layer = ParallaxLayer("assets/backgrounds/ground.png", 200, GROUND_LINE, True, scale=1.0)
 
     def enter_boss_mode(self):
@@ -210,10 +208,9 @@ class ParallaxBackground:
         for s in self.wind_streaks: s.update(dt)
         for b in self.birds: b.update(dt)
         
-        # REDUCED SPAWN: Timer increased to 6.0 seconds for fewer clouds
         self.spawn_timer += dt
         if self.spawn_timer > 6.0:
-            if len(self.active_clouds) < 6: # Cap the number of clouds
+            if len(self.active_clouds) < 6:
                 self.active_clouds.append(Cloud(self.cloud_img))
             self.spawn_timer = 0
             
@@ -223,6 +220,10 @@ class ParallaxBackground:
 
         speed_mult = 1.0 + (b_f * 0.5)
         self.far_mountains.update(dt * speed_mult)
+        
+        # Update Fog parallax
+        self.fog_x = (self.fog_x - self.fog_speed * dt * speed_mult) % WIDTH
+
         self.mountains.update(dt * speed_mult)
         self.ground_layer.update(dt * speed_mult)
 
@@ -237,8 +238,18 @@ class ParallaxBackground:
         if self.boss_factor < 0.8:
             self.sun.draw(screen, safe_star_alpha > 120) 
         
-        # DRAW ORDER: Far -> Near
+        # DRAW ORDER
         self.far_mountains.draw(screen)
+        
+        # Draw Parallax Fog (Atmospheric Perspective)
+        # We create a gradient-like fog that matches the sky color
+        fog_surf = pygame.Surface((WIDTH, 150), pygame.SRCALPHA)
+        fog_color = (*self.bg_color, 120) # Use sky color with some alpha
+        pygame.draw.rect(fog_surf, fog_color, (0, 0, WIDTH, 150))
+        # Layering two fog strips for a scrolling "mist" effect
+        screen.blit(fog_surf, (self.fog_x, GROUND_LINE - 350))
+        screen.blit(fog_surf, (self.fog_x - WIDTH, GROUND_LINE - 350))
+
         for cloud in self.active_clouds: cloud.draw(screen)
         for b in self.birds: b.draw(screen)
         

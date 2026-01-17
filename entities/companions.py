@@ -18,17 +18,22 @@ class Companion(pygame.sprite.Sprite):
         self.next_blink_time = random.uniform(2.0, 5.0) 
         self.is_blinking = False
         
-        # New: Common rotation variable for effects
+        # Effect rotation for visual flares
         self.effect_rotation = 0
 
     def update_behavior(self, dt):
         self.life_timer -= dt
         self.effect_rotation += 180 * dt # Rotate 180 degrees per sec
+        
+        # Cleanup logic
         if self.life_timer <= 0:
-            if hasattr(self.huey, 'is_invincible'):
+            if isinstance(self, Tine) and hasattr(self.huey, 'is_invincible'):
                 self.huey.is_invincible = False
+            if isinstance(self, Cici) and hasattr(self.huey, 'heat_system'):
+                self.huey.heat_system.apply_cici_boost(False)
             self.kill()
 
+        # Follow distance logic
         offset_x = -80 
         if self.side == "TOP": offset_y = -110
         elif self.side == "BOTTOM": offset_y = 110
@@ -43,6 +48,7 @@ class Companion(pygame.sprite.Sprite):
         self.rect.center = self.pos
 
     def draw_circular_flash(self, screen):
+        """Visual feedback when the companion is about to expire."""
         if self.life_timer < 1.0:
             alpha = int(self.life_timer * 255) 
             radius = int(self.rect.width * 0.8)
@@ -91,18 +97,14 @@ class Red(Companion):
         if hasattr(target, 'take_damage'): target.take_damage(60)
 
     def draw(self, screen):
-        # Aether Core Spheres (Red's unique effect)
         for i in range(3):
             angle = math.radians(self.effect_rotation + (i * 120))
             dist = 45 + math.sin(pygame.time.get_ticks() * 0.005) * 5
             off_x = math.cos(angle) * dist
             off_y = math.sin(angle) * dist
             core_pos = (self.rect.centerx + off_x, self.rect.centery + off_y)
-            
-            # Draw Core
             pygame.draw.circle(screen, (255, 50, 50), core_pos, 6)
-            pygame.draw.circle(screen, (255, 255, 255), core_pos, 3) # Inner glow
-            # Add additive light trail
+            pygame.draw.circle(screen, (255, 255, 255), core_pos, 3) 
             s = pygame.Surface((20, 20), pygame.SRCALPHA)
             pygame.draw.circle(s, (200, 0, 0, 100), (10, 10), 10)
             screen.blit(s, s.get_rect(center=core_pos), special_flags=pygame.BLEND_RGB_ADD)
@@ -118,7 +120,6 @@ class Red(Companion):
 class Tine(Companion):
     def __init__(self, huey):
         super().__init__(huey, "BOTTOM")
-        # 1. Animation Frames
         try:
             self.frame1 = pygame.image.load("assets/sprites/companions/tine_witch.png").convert_alpha()
             self.frame2 = pygame.image.load("assets/sprites/companions/tine_witchframe1.png").convert_alpha()
@@ -129,7 +130,6 @@ class Tine(Companion):
             self.frame2 = self.frame1
             self.image = self.frame1
 
-        # 2. Assets & SFX
         try:
             self.bolt_img = pygame.image.load("assets/sprites/effects/lightning_bolt.png").convert_alpha()
             self.bolt_img = pygame.transform.scale(self.bolt_img, (40, 80)) 
@@ -143,9 +143,7 @@ class Tine(Companion):
         self.rect = self.image.get_rect()
         self.zap_timer = 0
         self.active_zaps = [] 
-        
-        # 3. Aura Particle System
-        self.aura_particles = [] # List of indigo embers
+        self.aura_particles = [] 
 
     def update(self, dt, enemies):
         self.update_behavior(dt)
@@ -153,24 +151,21 @@ class Tine(Companion):
         self.zap_timer += dt
         self.huey.is_invincible = True
         
-        # --- Aura Logic ---
-        # Spawn embers frequently for a dense look
         if random.random() < 0.4:
             angle = random.uniform(0, math.pi * 2)
             dist = random.uniform(10, 45)
             self.aura_particles.append({
                 'rel_pos': pygame.Vector2(math.cos(angle)*dist, math.sin(angle)*dist),
-                'vel': pygame.Vector2(random.uniform(-10, 10), random.uniform(-20, -50)), # Float upward
+                'vel': pygame.Vector2(random.uniform(-10, 10), random.uniform(-20, -50)),
                 'life': 1.0,
                 'color': random.choice([(130, 50, 255), (180, 100, 255), (75, 0, 130)]),
                 'size': random.randint(2, 5)
             })
 
         for p in self.aura_particles:
-            p['rel_pos'] += p['vel'] * dt # Move relative to Tine
+            p['rel_pos'] += p['vel'] * dt
             p['life'] -= dt * 1.2
         self.aura_particles = [p for p in self.aura_particles if p['life'] > 0]
-        # ------------------
 
         self.active_zaps = [z for z in self.active_zaps if z['life'] > 0]
         for z in self.active_zaps: z['life'] -= dt
@@ -210,31 +205,25 @@ class Tine(Companion):
         self.active_zaps.append({'points': points, 'life': 0.15, 'target_pos': target_pos})
 
     def draw(self, screen):
-        # 1. Draw Indigo Aura Particles (Under Tine)
         for p in self.aura_particles:
             alpha = max(0, min(255, int(p['life'] * 255)))
             draw_pos = self.pos + p['rel_pos']
-            
-            # Glowing ember
             glow = pygame.Surface((p['size']*4, p['size']*4), pygame.SRCALPHA)
             pygame.draw.circle(glow, (*p['color'], alpha // 2), (p['size']*2, p['size']*2), p['size']*2)
             screen.blit(glow, glow.get_rect(center=draw_pos), special_flags=pygame.BLEND_RGB_ADD)
             pygame.draw.circle(screen, (*p['color'], alpha), draw_pos, p['size'])
 
-        # 2. Huey's Shield Pulse (Logic remained same)
         shield_surf = pygame.Surface((250, 250), pygame.SRCALPHA)
         pulse = 30 + math.sin(pygame.time.get_ticks() * 0.01) * 10
         pygame.draw.circle(shield_surf, (75, 0, 130, int(pulse)), (125, 125), 110)
         pygame.draw.circle(shield_surf, (150, 100, 255, 80), (125, 125), 110, 2)
         screen.blit(shield_surf, shield_surf.get_rect(center=self.huey.rect.center))
 
-        # 3. Zaps
         for zap in self.active_zaps:
             pygame.draw.lines(screen, (200, 200, 255), False, zap['points'], 3)
             if self.bolt_img:
                 screen.blit(self.bolt_img, self.bolt_img.get_rect(center=zap['target_pos']))
 
-        # 4. Tine and Flash
         screen.blit(self.image, self.rect)
         self.draw_circular_flash(screen)
 
@@ -257,20 +246,28 @@ class Cici(Companion):
         self.burst_visuals = [] 
         self.particles = [] 
         
+        # APPLY HEAT BUFF IMMEDIATELY
         if hasattr(self.huey, 'heat_system'):
-            self.original_cool_rate = self.huey.heat_system.base_cool_rate
-            self.huey.heat_system.base_cool_rate = 80.0 
-        else: self.original_cool_rate = 35
+            self.huey.heat_system.apply_cici_boost(True)
 
     def update(self, dt, enemies):
         self.update_behavior(dt)
         self.animate(dt)
+        
+        # Passive Heat Reduction while active
         if hasattr(self.huey, 'heat_system'):
             self.huey.heat_system.heat = max(0, self.huey.heat_system.heat - 20 * dt)
+            
+        # Passive Healing
         if self.huey.health < self.huey.max_health:
             self.huey.health += 3 * dt 
-            if random.random() < 0.15: self.spawn_particle(self.huey.rect.center, random.choice([(100, 200, 255), (255, 255, 150)]))
-        if self.huey.health < self.last_huey_hp: self.trigger_heal_burst(enemies)
+            if random.random() < 0.15: 
+                self.spawn_particle(self.huey.rect.center, random.choice([(100, 200, 255), (255, 255, 150)]))
+        
+        # Defensive Burst if player takes damage
+        if self.huey.health < self.last_huey_hp: 
+            self.trigger_heal_burst(enemies)
+            
         self.last_huey_hp = self.huey.health
         self.update_visual_effects(dt)
 
@@ -309,17 +306,14 @@ class Cici(Companion):
                 if hasattr(e, 'take_damage'): e.take_damage(20)
 
     def draw(self, screen):
-        # Golden Oracle Circle (Cici's unique effect)
         circle_surf = pygame.Surface((120, 120), pygame.SRCALPHA)
         pygame.draw.circle(circle_surf, (255, 215, 0, 40), (60, 60), 55, 2)
-        # Rotating Runes/Ticks
         for i in range(8):
             angle = math.radians(self.effect_rotation + (i * 45))
             tx, ty = 60 + math.cos(angle)*55, 60 + math.sin(angle)*55
             pygame.draw.circle(circle_surf, (255, 255, 150, 100), (int(tx), int(ty)), 3)
         screen.blit(circle_surf, circle_surf.get_rect(center=self.rect.center))
 
-        # Original Glows and Particles
         glow_size = int(self.huey.rect.width * 2.8)
         glow_surf = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
         pulse = 15 + math.sin(pygame.time.get_ticks() * 0.005) * 8
@@ -341,7 +335,15 @@ class Cici(Companion):
         self.draw_circular_flash(screen)
 
     def update_behavior(self, dt):
-        super().update_behavior(dt)
+        """Cici hovers behind the player."""
+        self.life_timer -= dt
+        self.effect_rotation += 180 * dt
+        
+        if self.life_timer <= 0:
+            if hasattr(self.huey, 'heat_system'):
+                self.huey.heat_system.apply_cici_boost(False)
+            self.kill()
+
         target = pygame.Vector2(self.huey.rect.left - 60, self.huey.rect.centery)
         self.hover_angle += 2 * dt
         target.y += math.sin(self.hover_angle) * 15
@@ -353,6 +355,7 @@ class CompanionManager:
         self.huey, self.companions = huey, pygame.sprite.Group()
 
     def summon(self, comp_type):
+        # Prevent duplicates
         if any(isinstance(c, Red) for c in self.companions) and comp_type == "RED": return
         if any(isinstance(c, Tine) for c in self.companions) and comp_type == "TINE": return
         if any(isinstance(c, Cici) for c in self.companions) and comp_type == "CICI": return
@@ -361,8 +364,10 @@ class CompanionManager:
         if comp_type in mapping: self.companions.add(mapping[comp_type](self.huey))
 
     def update(self, dt, enemies):
+        # Safety check for invincibility
         if not any(isinstance(c, Tine) for c in self.companions) and hasattr(self.huey, 'is_invincible'):
             self.huey.is_invincible = False
+            
         self.companions.update(dt, enemies)
 
     def draw(self, screen):

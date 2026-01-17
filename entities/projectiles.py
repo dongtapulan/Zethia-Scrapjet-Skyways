@@ -76,6 +76,7 @@ class EnemyBullet(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(center=(x, y))
         self.pos = pygame.Vector2(x, y)
         self.speed = 350
+        self.damage = 10 # Added: Fixes the BlightTitan Phase 3 error
         rad = math.radians(angle)
         self.vel = pygame.Vector2(math.cos(rad) * self.speed, math.sin(rad) * self.speed)
 
@@ -86,7 +87,7 @@ class EnemyBullet(pygame.sprite.Sprite):
             self.kill()
 
 class GloomLaser(pygame.sprite.Sprite):
-    """The missing laser class for enemies."""
+    """The laser class for enemies."""
     def __init__(self, x, y):
         super().__init__()
         self.image = pygame.Surface((WIDTH, 12), pygame.SRCALPHA)
@@ -94,7 +95,8 @@ class GloomLaser(pygame.sprite.Sprite):
         self.timer = 0
         self.duration = 0.6 
         self.start_pos = (x, y)
-        self.end_pos = (0, y) # Fires backwards towards player
+        self.end_pos = (0, y) 
+        self.damage = 15 # Added damage attribute
 
     def update(self, dt):
         self.timer += dt
@@ -102,7 +104,6 @@ class GloomLaser(pygame.sprite.Sprite):
             self.kill()
 
     def draw_custom(self, screen):
-        # Pulsing purple laser
         alpha = int(150 + math.sin(pygame.time.get_ticks() * 0.02) * 105)
         width = random.randint(4, 8)
         pygame.draw.line(screen, (180, 0, 255, alpha), self.start_pos, self.end_pos, width)
@@ -289,8 +290,12 @@ class ProjectileManager:
         try:
             self.shoot_sfx = pygame.mixer.Sound(SFX_MACHINE_GUN)
             self.shoot_sfx.set_volume(0.15)
+            # Load the hit SFX
+            self.hit_sfx = pygame.mixer.Sound("assets/sfx/explosion_old.mp3")
+            self.hit_sfx.set_volume(0.2)
         except:
             self.shoot_sfx = None
+            self.hit_sfx = None
 
     def trigger_explosion(self, x, y, scale=1.0):
         self.effects.add(Explosion(x, y, scale))
@@ -315,6 +320,7 @@ class ProjectileManager:
                 enemy.take_damage(5) 
                 if random.random() < 0.1: 
                     self.trigger_explosion(enemy.rect.centerx, enemy.rect.centery, scale=0.3)
+                    if self.hit_sfx: self.hit_sfx.play()
 
     def fire_machine_gun(self, player, enemy_group, dt):
         if not player.is_alive or player.is_stalled: return False
@@ -346,6 +352,9 @@ class ProjectileManager:
                 for enemy in hit_enemies:
                     enemy.take_damage(bullet.damage)
                     self.trigger_explosion(bullet.rect.centerx, bullet.rect.centery, scale=0.5)
+                    # Play the hit sound effect when a bullet/missile connects
+                    if self.hit_sfx:
+                        self.hit_sfx.play()
                     bullet.kill()
 
     def draw(self, screen):

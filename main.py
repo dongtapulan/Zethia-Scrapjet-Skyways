@@ -47,9 +47,9 @@ class Game:
         self.enemy_manager = None
         self.companion_manager = None 
         self.combat_system = None
-        self.heat_system = None
-        self.hud = None             
-        self.dialogue = None       
+        self.heat_system = HeatSystem()
+        self.hud = HUD()            
+        self.dialogue = DialogueBox() 
         self.score = 0
         self.difficulty_mult = 1.0 
 
@@ -58,9 +58,8 @@ class Game:
             self.sfx_scrap_normal = pygame.mixer.Sound("assets/sfx/scrap_pickup.mp3")
             self.sfx_scrap_special = pygame.mixer.Sound("assets/sfx/special_pickup.mp3")
             self.sfx_explosion = pygame.mixer.Sound("assets/sfx/explosion.wav") 
-            # New specific sound for gravity bomb if available, otherwise use explosion
             try:
-                self.sfx_gravity_boom = pygame.mixer.Sound("assets/sfx/explosion.wav") # i changed this 
+                self.sfx_gravity_boom = pygame.mixer.Sound("assets/sfx/explosion.wav") 
             except:
                 self.sfx_gravity_boom = self.sfx_explosion
 
@@ -74,15 +73,24 @@ class Game:
         self.play_menu_music()
 
     def play_menu_music(self):
-        if not pygame.mixer.music.get_busy():
-            try:
-                pygame.mixer.music.load("assets/sfx/main_theme.mp3") 
-                pygame.mixer.music.set_volume(0.2)
-                pygame.mixer.music.play(-1)
-            except: pass
+        try:
+            pygame.mixer.music.load("assets/sfx/main_theme.mp3") 
+            pygame.mixer.music.set_volume(0.35)
+            pygame.mixer.music.play(-1)
+        except: pass
 
-    def stop_all_audio(self):
-        pygame.mixer.music.stop()
+    def play_random_bgm(self):
+        """Randomly toggles between themes for gameplay variety."""
+        themes = ["assets/sfx/main_theme.mp3", "assets/sfx/menu_theme.mp3"]
+        chosen_theme = random.choice(themes)
+        try:
+            pygame.mixer.music.load(chosen_theme)
+            pygame.mixer.music.set_volume(0.35)
+            pygame.mixer.music.play(-1)
+        except: pass
+
+    def stop_player_sfx(self):
+        """Stops mechanical SFX on death/menu but leaves BGM alone."""
         if self.player:
             if hasattr(self.player, 'engine_channel') and self.player.engine_channel:
                 self.player.engine_channel.stop()
@@ -117,11 +125,7 @@ class Game:
         self.difficulty_mult = 1.0
         self.state = "PLAYING"
         
-        try:
-            pygame.mixer.music.load("assets/sfx/menu_theme.mp3")
-            pygame.mixer.music.play(-1)
-        except: pass
-            
+        self.play_random_bgm()
         self.dialogue.trigger_random_quip("enemies")
 
     def handle_event(self, event):
@@ -152,28 +156,22 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_p: self.state = "PAUSED"
                 if event.key == pygame.K_ESCAPE:
-                    self.stop_all_audio()
+                    self.stop_player_sfx()
                     self.state = "MENU"
                     self.play_menu_music()
                 
-                # --- ACTIVE ABILITIES ---
-                # Missile (R)
                 if event.key == pygame.K_r and self.player.missiles > 0:
                     self.player.missiles -= 1
                     self.combat_system.manager.launch_missile(self.player, self.enemy_manager.enemies)
                 
-                # Gravity Bomb (G) - FIX: Added SFX Trigger
                 if event.key == pygame.K_g and self.player.bombs > 0:
                     self.player.bombs -= 1
                     self.combat_system.manager.trigger_gravity_bomb(self.player, self.enemy_manager.enemies)
-                    if self.sfx_gravity_boom:
-                        self.sfx_gravity_boom.play()
+                    if self.sfx_gravity_boom: self.sfx_gravity_boom.play()
 
-                # Lightning (Q) - FIX: Integrated SFX from player.py
                 if event.key == pygame.K_q and self.player.lightning_charges > 0:
                     self.player.lightning_charges -= 1
-                    if hasattr(self.player, 'play_lightning_sfx'):
-                        self.player.play_lightning_sfx()
+                    if hasattr(self.player, 'play_lightning_sfx'): self.player.play_lightning_sfx()
                     targets = list(self.enemy_manager.enemies)[:3]
                     self.combat_system.manager.spawn_lightning(self.player.rect.center, targets)
         
@@ -194,48 +192,49 @@ class Game:
             elif self.state == "GAMEOVER": self.game_over_screen.update(dt)
             return
 
-        # Difficulty and Distance Scaling
         self.difficulty_mult = min(2.0, 1.0 + (self.player.distance / 5000) * 0.1)
         current_scroll_speed = BASE_SCROLL_SPEED * self.difficulty_mult
         scroll_move = dt * current_scroll_speed if self.player.is_alive else 0
         self.player.distance += scroll_move
         
-        # Parallax Boss Logic
         if self.enemy_manager.boss_active:
             self.parallax.enter_boss_mode()
         else:
             self.parallax.target_boss_factor = 0.0
 
-        # Update World Components
         self.parallax.update(self.player.distance, dt) 
         self.ground.update(dt, self.player.rect, self.player.is_skimming) 
         self.obstacle_manager.update(dt, self.difficulty_mult) 
         self.scrap_manager.update(dt, self.player.rect.center)
         
-        # Update Player
         self.player.handle_input(flight_input, dt) 
         self.player.update(dt)
 
-        # Continuous Weapons (Machine Gun & Laser)
+        # --- BALANCED HEAT LOGIC ---
         keys = pygame.key.get_pressed()
         is_firing_any = False
 
-        if self.player.is_alive and combat_input["firing"]:
-            if self.combat_system.manager.fire_machine_gun(self.player, self.enemy_manager.enemies, dt):
-                self.heat_system.add_heat(2)
+        if self.player.is_alive:
+            firing_mg = combat_input["firing"] 
+            firing_laser = keys[pygame.K_e] and self.player.laser_fuel > 0
+            
+            if firing_mg:
+                # Lowered from 120 to 45 for better sustain
+                self.heat_system.add_heat(45 * dt) 
+                self.combat_system.manager.fire_machine_gun(self.player, self.enemy_manager.enemies, dt)
+                is_firing_any = True
+            
+            if firing_laser:
+                # Lowered from 80 to 30
+                self.heat_system.add_heat(30 * dt) 
+                self.combat_system.manager.process_laser_beam(self.player, self.enemy_manager.enemies)
+                self.player.laser_fuel -= 15 * dt 
                 is_firing_any = True
 
-        # Laser (E) - FIX: SFX and Fuel logic
-        if self.player.is_alive and keys[pygame.K_e] and self.player.laser_fuel > 0:
-            self.combat_system.manager.process_laser_beam(self.player, self.enemy_manager.enemies)
-            self.player.laser_fuel -= 15 * dt 
-            is_firing_any = True
-
-        # Systems & Managers
         if self.companion_manager: self.companion_manager.update(dt, self.enemy_manager.enemies)
         
         if not self.player.is_alive and self.player.has_exploded:
-            self.stop_all_audio()
+            self.stop_player_sfx()
             self.upgrade_manager.convert_score_to_bolts(self.score)
             self.state = "GAMEOVER"
 
@@ -249,21 +248,17 @@ class Game:
 
     def _handle_collisions(self):
         pm = self.combat_system.manager 
-        
-        # Player vs Obstacles
         if pygame.sprite.spritecollide(self.player, self.obstacle_manager.obstacles, True, pygame.sprite.collide_mask):
             self.player.take_damage(25) 
             pm.trigger_explosion(self.player.rect.centerx, self.player.rect.centery)
             if self.sfx_explosion: self.sfx_explosion.play()
 
-        # Player vs Enemy Bullets
         bullet_hits = pygame.sprite.spritecollide(self.player, pm.enemy_bullets, True)
         for bullet in bullet_hits:
             self.player.take_damage(10)
             pm.trigger_explosion(bullet.rect.centerx, bullet.rect.centery)
             if self.sfx_explosion: self.sfx_explosion.play()
 
-        # Enemy Death Handling
         for enemy in self.enemy_manager.enemies:
             if enemy.hp <= 0:
                 is_boss = isinstance(enemy, BlightTitan)
@@ -275,13 +270,12 @@ class Game:
                     self.player.scrap += 250
                     self.enemy_manager.set_next_boss()
                     self.parallax.exit_boss_mode() 
-                    self.play_menu_music() 
+                    self.play_random_bgm() 
                 else:
                     self.score += 150
                     self.player.scrap += 1
                 enemy.kill()
 
-        # Scrap Collection
         scrap_hits = pygame.sprite.spritecollide(self.player, self.scrap_manager.scrap_group, True)
         for scrap in scrap_hits:
             self.score += scrap.value
