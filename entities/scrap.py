@@ -157,7 +157,7 @@ class ScrapManager:
                 choice = "tine_soul"
             self.scrap_group.add(Scrap(WIDTH + 100, start_y, choice, self.images))
 
-        elif roll < 0.55:
+        elif roll < 0.60:
             choice = random.choice(["bomb", "missile", "battery", "gear"])
             self.scrap_group.add(Scrap(WIDTH + 50, start_y, choice, self.images))
             

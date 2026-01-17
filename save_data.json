@@ -1,10 +1,10 @@
 {
-    "bolts": 413,
+    "bolts": 1349,
     "stats": {
         "Engine Cooling": 2,
         "Magnetic Hull": 1,
-        "Hull Integrity": 0,
-        "Ammo Feed": 0,
+        "Hull Integrity": 1,
+        "Ammo Feed": 2,
         "missiles": 0,
         "lightning_charges": 0,
         "laser_fuel": 0,
