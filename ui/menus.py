@@ -115,7 +115,7 @@ class MainMenu:
             self.screen.fill(BLACK)
             try:
                 splash_font = pygame.font.Font(self.font_path, 30)
-                splash_surf = splash_font.render("Hyu Wei Productions", True, (200, 200, 200))
+                splash_surf = splash_font.render("Bis-IT Productions", True, (200, 200, 200))
                 splash_surf.set_alpha(self.splash_alpha)
                 self.screen.blit(splash_surf, (WIDTH//2 - splash_surf.get_width()//2, HEIGHT//2))
             except: pass
